@@ -32,31 +32,29 @@ function wait_for_triton {
    retries=0
    sleep_interval=${GPUCI_RETRY_SLEEP:=1}
 
-   res=$(curl -X GET \
-        --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
-        "http://localhost:8000/v2/health/ready" || echo 'HTTP 500')
+   status=$(curl -X GET \
+           -s -w "%{http_code}" \
+           --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
+           "http://localhost:8000/v2/health/ready" || echo 500)
 
-   status=$(echo "$res" | head -1 | cut -d' ' -f2)
-
-   while [[ "$status" != "" ]] && [[ "$status" != "200" ]] && \
-         (( ${retries} < ${max_retries} )); do
+   while [[ ${status} != 200 ]] && (( ${retries} < ${max_retries} )); do
       echo -e "${y}Triton not ready. Waiting ${sleep_interval} sec...${x}"
 
       sleep ${sleep_interval}
 
-      res=$(curl -X GET \
-         --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
-         "http://localhost:8000/v2/health/ready" || echo 'HTTP 500')
+      status=$(curl -X GET \
+              -s -w "%{http_code}" \
+              --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
+              "http://localhost:8000/v2/health/ready" || echo 500)
 
-      status=$(echo "$res" | head -1 | cut -d' ' -f2)
       retries=$((retries+1))
    done
 
-   if [[ "$status" == "200" ]]; then
+   if [[ ${status} == 200 ]]; then
       echo -e "${g}Triton is ready.${x}"
       ret_val=0
    else
-      echo -e "${g}Triton not ready: ${res} .${x}"
+      echo -e "${g}Triton not ready.${x}"
       ret_val=1
    fi
 
