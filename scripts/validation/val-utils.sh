@@ -52,8 +52,15 @@ function wait_for_triton {
       retries=$((retries+1))
    done
 
-   echo -e "${g}Triton is ready.${x}"
-   return 0
+   if [[ "$status" == "200" ]]; then
+      echo -e "${g}Triton is ready.${x}"
+      ret_val=0
+   else
+      echo -e "${g}Triton not ready: ${res} .${x}"
+      ret_val=1
+   fi
+
+   return ${ret_val}
 }
 
 function ensure_triton_running {
