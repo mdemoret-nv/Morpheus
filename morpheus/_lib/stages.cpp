@@ -83,6 +83,28 @@ PYBIND11_MODULE(stages, m)
              py::arg("filename"),
              py::arg("repeat"));
 
+    py::class_<KafkaSourceStage, neo::SegmentObject, std::shared_ptr<KafkaSourceStage>>(
+        m, "KafkaSourceStage", py::multiple_inheritance())
+        .def(py::init<>([](neo::Segment& parent,
+                           const std::string& name,
+                           size_t max_batch_size,
+                           std::string topic,
+                           int32_t batch_timeout_ms,
+                           std::map<std::string, std::string> config) {
+                 auto stage =
+                     std::make_shared<KafkaSourceStage>(parent, name, max_batch_size, topic, batch_timeout_ms, config);
+
+                 parent.register_node<FileSourceStage::source_type_t, FileSourceStage::source_type_t>(stage);
+
+                 return stage;
+             }),
+             py::arg("parent"),
+             py::arg("name"),
+             py::arg("max_batch_size"),
+             py::arg("topic"),
+             py::arg("batch_timeout_ms"),
+             py::arg("config"));
+
     py::class_<DeserializeStage, neo::SegmentObject, std::shared_ptr<DeserializeStage>>(
         m, "DeserializeStage", py::multiple_inheritance())
         .def(py::init<>([](neo::Segment& parent, const std::string& name, size_t batch_size) {

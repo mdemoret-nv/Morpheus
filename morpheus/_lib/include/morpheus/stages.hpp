@@ -17,12 +17,15 @@
 
 #pragma once
 
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
 #include <cstdint>
-#include <cudf/strings/strings_column_view.hpp>
 #include <functional>
 #include <memory>
 #include <numeric>
 #include <regex>
+#include <sstream>
 #include <utility>
 
 #include "morpheus/common.hpp"
@@ -30,6 +33,7 @@
 #include "morpheus/type_utils.hpp"
 
 #include <http_client.h>
+#include <librdkafka/rdkafkacpp.h>
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
 #include <thrust/iterator/constant_iterator.h>
@@ -55,6 +59,32 @@ using namespace pybind11::literals;
 namespace fs = std::filesystem;
 namespace tc = triton::client;
 using json   = nlohmann::json;
+
+template <typename FuncT, typename SeqT>
+auto foreach_map(const SeqT& seq, FuncT func)
+{
+    using value_t  = typename SeqT::const_reference;
+    using return_t = decltype(func(std::declval<value_t>()));
+
+    std::vector<return_t> result{};
+
+    std::transform(seq.cbegin(), seq.cend(), std::back_inserter(result), func);
+
+    return result;
+}
+
+template <typename FuncT, typename SeqT>
+auto foreach_map2(const SeqT& seq, FuncT func)
+{
+    using value_t  = typename SeqT::const_reference;
+    using return_t = decltype(func(std::declval<value_t>()));
+
+    std::vector<return_t> result{};
+
+    std::transform(seq.begin(), seq.end(), std::back_inserter(result), func);
+
+    return result;
+}
 
 class FileSourceStage : public pyneo::PythonSource<std::shared_ptr<MessageMeta>>
 {
@@ -179,6 +209,241 @@ class FileSourceStage : public pyneo::PythonSource<std::shared_ptr<MessageMeta>>
 
     std::string m_filename;
     int m_repeat{1};
+};
+
+class KafkaSourceStage : public pyneo::PythonSource<std::shared_ptr<MessageMeta>>
+{
+  public:
+    using base_t = pyneo::PythonSource<std::shared_ptr<MessageMeta>>;
+    using base_t::source_type_t;
+
+    KafkaSourceStage(const neo::Segment& parent,
+                     const std::string& name,
+                     size_t max_batch_size,
+                     std::string topic,
+                     int32_t batch_timeout_ms,
+                     std::map<std::string, std::string> config) :
+      neo::SegmentObject(parent, name),
+      base_t(parent, name),
+      m_max_batch_size(max_batch_size),
+      m_topic(std::move(topic)),
+      m_batch_timeout_ms(batch_timeout_ms),
+      m_config(std::move(config))
+    {
+        // Create a consumer. Shared by all threads
+        m_consumer = this->create_consumer();
+
+        this->set_source_observable(neo::Observable<source_type_t>([this](neo::Subscriber<source_type_t>& sub) {
+            auto batch_timeout = std::chrono::milliseconds(m_batch_timeout_ms);
+
+            while (sub.is_subscribed())
+            {
+                size_t msg_count = 0;
+                // std::string buffer = "";
+                std::ostringstream buffer;
+
+                auto now       = std::chrono::high_resolution_clock::now();
+                auto batch_end = now + batch_timeout;
+
+                do
+                {
+                    auto remaining_ms = std::chrono::duration_cast<std::chrono::milliseconds>(batch_end - now).count();
+
+                    DCHECK(remaining_ms >= 0) << "Cant have negative reminaing time";
+
+                    std::unique_ptr<RdKafka::Message> msg{m_consumer->consume(remaining_ms)};
+
+                    switch (msg->err())
+                    {
+                    case RdKafka::ERR__TIMED_OUT:
+                        // Yield on a timeout
+                        boost::this_fiber::yield();
+                        break;
+                    case RdKafka::ERR_NO_ERROR:
+
+                        // VLOG(10) << this->display_str(
+                        //     CONCAT_STR("Got message. Topic: " << msg->topic_name() << ", Part: " << msg->partition()
+                        //                                       << ", Offset: " << msg->offset()));
+
+                        buffer << static_cast<char*>(msg->payload()) << "\n";
+                        msg_count++;
+                        break;
+                    case RdKafka::ERR__PARTITION_EOF:
+                        // Hit the end, sleep for 100 ms
+                        boost::this_fiber::sleep_for(std::chrono::milliseconds(100));
+                        break;
+                    default:
+                        /* Errors */
+                        LOG(ERROR) << "Consume failed: " << msg->errstr();
+                    }
+
+                    // Update now
+                    now = std::chrono::high_resolution_clock::now();
+                } while (msg_count < m_max_batch_size && now < batch_end);
+
+                if (msg_count == 0)
+                {
+                    continue;
+                }
+
+                auto data_table = this->load_table(buffer.str());
+
+                // Next, create the message metadata. This gets reused for repeats
+                auto meta = MessageMeta::create_from_cpp(std::move(data_table), 0);
+
+                // Always push at least 1
+                sub.on_next(std::move(meta));
+
+                // If auto commit is off, queue an async commit now that we have the batch
+                if (m_requires_commit)
+                {
+                    m_consumer->commitAsync();
+                }
+            }
+
+            sub.on_completed();
+        }));
+    }
+
+    ~KafkaSourceStage() override
+    {
+        m_consumer->close();
+
+        m_consumer.reset();
+    }
+
+  private:
+    std::unique_ptr<RdKafka::Conf> build_kafka_conf(const std::map<std::string, std::string>& config_in)
+    {
+        // Copy the config
+        std::map<std::string, std::string> config_out(config_in);
+
+        std::map<std::string, std::string> defaults{{"session.timeout.ms", "60000"},
+                                                    {"enable.auto.commit", "false"},
+                                                    {"auto.offset.reset", "latest"},
+                                                    {"enable.partition.eof", "true"}};
+
+        // Set some defaults if they dont exist
+        config_out.merge(defaults);
+
+        m_requires_commit = config_out["enable.auto.commit"] == "false";
+
+        // Make the kafka_conf and set all properties
+        auto kafka_conf = std::unique_ptr<RdKafka::Conf>(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
+
+        for (auto const& key_value : config_out)
+        {
+            std::string error_string;
+            CUDF_EXPECTS(
+                RdKafka::Conf::ConfResult::CONF_OK == kafka_conf->set(key_value.first, key_value.second, error_string),
+                "Invalid Kafka configuration");
+        }
+
+        return std::move(kafka_conf);
+    }
+
+    std::unique_ptr<RdKafka::KafkaConsumer> create_consumer()
+    {
+        auto kafka_conf = this->build_kafka_conf(m_config);
+
+        std::string errstr;
+        auto consumer =
+            std::unique_ptr<RdKafka::KafkaConsumer>(RdKafka::KafkaConsumer::create(kafka_conf.get(), errstr));
+
+        // Subscribe to the topic. Uses the default rebalancer
+        CUDF_EXPECTS(RdKafka::ErrorCode::ERR_NO_ERROR == consumer->subscribe(std::vector<std::string>{m_topic}),
+                     "Error subscribing to topics");
+
+        auto spec_topic =
+            std::unique_ptr<RdKafka::Topic>(RdKafka::Topic::create(consumer.get(), m_topic, nullptr, errstr));
+
+        RdKafka::Metadata* md;
+        CUDF_EXPECTS(RdKafka::ERR_NO_ERROR == consumer->metadata(spec_topic == nullptr, spec_topic.get(), &md, 1000),
+                     "Failed to list_topics in Kafka broker");
+
+        std::map<std::string, std::vector<int32_t>> topic_parts;
+
+        VLOG(10) << this->display_str(CONCAT_STR("Subscribed to " << md->topics()->size() << " topics:"));
+
+        for (auto const& topic : *(md->topics()))
+        {
+            auto& part_ids = topic_parts[topic->topic()];
+
+            auto const& parts = *(topic->partitions());
+
+            std::transform(parts.cbegin(), parts.cend(), std::back_inserter(part_ids), [](auto const& part) {
+                return part->id();
+            });
+
+            auto toppar_list = foreach_map(parts, [&topic](const auto& part) {
+                return std::unique_ptr<RdKafka::TopicPartition>{
+                    RdKafka::TopicPartition::create(topic->topic(), part->id())};
+            });
+
+            std::vector<RdKafka::TopicPartition*> toppar_ptrs =
+                foreach_map(toppar_list, [](const std::unique_ptr<RdKafka::TopicPartition>& x) { return x.get(); });
+
+            // Query Kafka to populate the TopicPartitions with the desired offsets
+            CUDF_EXPECTS(RdKafka::ERR_NO_ERROR == consumer->committed(toppar_ptrs, 1000),
+                         "Failed retrieve Kafka committed offsets");
+
+            auto committed =
+                foreach_map(toppar_list, [](const std::unique_ptr<RdKafka::TopicPartition>& x) { return x->offset(); });
+
+            // Query Kafka to populate the TopicPartitions with the desired offsets
+            CUDF_EXPECTS(RdKafka::ERR_NO_ERROR == consumer->position(toppar_ptrs), "Failed retrieve Kafka positions");
+
+            auto positions =
+                foreach_map(toppar_list, [](const std::unique_ptr<RdKafka::TopicPartition>& x) { return x->offset(); });
+
+            VLOG(10) << this->display_str(CONCAT_STR(
+                "   Topic: '" << topic->topic() << "', Parts: " << array_to_str(part_ids.begin(), part_ids.end())
+                              << ", Committed: " << array_to_str(committed.begin(), committed.end())
+                              << ", Positions: " << array_to_str(positions.begin(), positions.end())));
+        }
+
+        return std::move(consumer);
+    }
+
+    cudf::io::table_with_metadata load_table(const std::string& buffer)
+    {
+        auto options =
+            cudf::io::json_reader_options::builder(cudf::io::source_info(buffer.c_str(), buffer.size())).lines(true);
+
+        auto tbl = cudf::io::read_json(options.build());
+
+        auto found = std::find(tbl.metadata.column_names.begin(), tbl.metadata.column_names.end(), "data");
+
+        if (found == tbl.metadata.column_names.end())
+            return tbl;
+
+        // Super ugly but cudf cant handle newlines and add extra escapes. So we need to convert
+        // \\n -> \n
+        // \\/ -> \/
+        auto columns = tbl.tbl->release();
+
+        size_t idx = found - tbl.metadata.column_names.begin();
+
+        auto updated_data = cudf::strings::replace(
+            cudf::strings_column_view{columns[idx]->view()}, cudf::string_scalar("\\n"), cudf::string_scalar("\n"));
+
+        updated_data = cudf::strings::replace(
+            cudf::strings_column_view{updated_data->view()}, cudf::string_scalar("\\/"), cudf::string_scalar("/"));
+
+        columns[idx] = std::move(updated_data);
+
+        tbl.tbl = std::move(std::make_unique<cudf::table>(std::move(columns)));
+
+        return tbl;
+    }
+
+    size_t m_max_batch_size{128};
+    std::string m_topic{"test_pcap"};
+    uint32_t m_batch_timeout_ms{100};
+    std::map<std::string, std::string> m_config;
+
+    bool m_requires_commit{false};  // Whether or not manual committing is required
+    std::unique_ptr<RdKafka::KafkaConsumer> m_consumer;
 };
 
 class DeserializeStage : public pyneo::PythonNode<std::shared_ptr<MessageMeta>, std::shared_ptr<MultiMessage>>
@@ -403,9 +668,10 @@ class PreprocessFILStage
                         }
                     }
 
-                    // Need to ensure all string columns have been converted to numbers. This requires running a regex
-                    // which is too difficult to do from C++ at this time. So grab the GIL, make the conversions, and
-                    // release. This is horribly inefficient, but so is the JSON lines format for this workflow
+                    // Need to ensure all string columns have been converted to numbers. This requires running a
+                    // regex which is too difficult to do from C++ at this time. So grab the GIL, make the
+                    // conversions, and release. This is horribly inefficient, but so is the JSON lines format for
+                    // this workflow
                     if (!bad_cols.empty())
                     {
                         py::gil_scoped_acquire gil;
@@ -488,19 +754,6 @@ class PreprocessFILStage
 
     std::string m_vocab_file;
 };
-
-template <typename FuncT, typename SeqT>
-auto foreach_map(SeqT seq, FuncT func)
-{
-    using value_t  = typename SeqT::value_type;
-    using return_t = decltype(func(std::declval<value_t>()));
-
-    std::vector<return_t> result{};
-
-    std::transform(seq.begin(), seq.end(), std::back_inserter(result), func);
-
-    return result;
-}
 
 void __checkTritonErrors(tc::Error status,
                          const std::string& methodName,

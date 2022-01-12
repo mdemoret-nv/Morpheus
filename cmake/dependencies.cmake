@@ -67,6 +67,8 @@ include(deps/Configure_cudf)
 set(TRITONCLIENT_VERSION "${RAPIDS_VERSION}" CACHE STRING "Which version of TritonClient to use")
 include(deps/Configure_TritonClient)
 
+include(deps/Configure_rdkafka)
+
 if(MORPHEUS_BUILD_BENCHMARKS)
   # google benchmark
   # ================

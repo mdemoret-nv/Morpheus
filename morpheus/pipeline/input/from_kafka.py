@@ -22,6 +22,7 @@ from cudf_kafka._lib.kafka import KafkaDatasource
 
 import cudf
 
+import morpheus._lib.stages as neos
 from morpheus.config import Config
 from morpheus.pipeline.messages import MessageMeta
 from morpheus.pipeline.pipeline import SingleOutputSource
@@ -324,7 +325,17 @@ class KafkaSourceStage(SingleOutputSource):
 
     def _build_source(self, seg: neo.Segment) -> StreamPair:
 
-        source = seg.make_source(self.unique_name, self._source_generator)
+        if (Config.get().use_cpp or True):
+            source = neos.KafkaSourceStage(seg,
+                                           self.unique_name,
+                                           self._max_batch_size,
+                                           self._topic,
+                                           int(self._poll_interval * 1000),
+                                           self._consumer_params)
+            source.concurrency = self._max_concurrent
+        else:
+            source = seg.make_source(self.unique_name, self._source_generator)
+
         # source.concurrency = self._max_concurrent
 
         return source, MessageMeta

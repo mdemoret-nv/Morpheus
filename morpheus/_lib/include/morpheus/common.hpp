@@ -39,6 +39,23 @@ namespace neo   = trtlab::neo;
 namespace py    = pybind11;
 namespace pyneo = trtlab::neo::pyneo;
 
+template <typename IterT>
+std::string join(IterT begin, IterT end, std::string const& separator)
+{
+    std::ostringstream result;
+    if (begin != end)
+        result << *begin++;
+    while (begin != end)
+        result << separator << *begin++;
+    return result.str();
+}
+
+template <typename IterT>
+std::string array_to_str(IterT begin, IterT end)
+{
+    return CONCAT_STR("[" << join(begin, end, ", ") << "]");
+}
+
 class RMMTensor : public neo::ITensor
 {
   public:

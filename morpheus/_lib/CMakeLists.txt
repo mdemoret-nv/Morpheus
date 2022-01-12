@@ -41,7 +41,7 @@ morpheus_add_pybind11_module(./common.cpp
 )
 
 morpheus_add_pybind11_module(./messages.cpp LINK_TARGETS ${cudf_helpers_target} utils)
-morpheus_add_pybind11_module(./stages.cpp LINK_TARGETS ${cudf_helpers_target} TritonClient::httpclient utils)
+morpheus_add_pybind11_module(./stages.cpp LINK_TARGETS ${cudf_helpers_target} TritonClient::httpclient utils RDKAFKA::RDKAFKA)
 
 install(
   TARGETS utils
