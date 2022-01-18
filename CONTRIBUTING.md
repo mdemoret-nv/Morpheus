@@ -82,6 +82,10 @@ This workflow utilizes a docker container to setup most dependencies ensuring a 
       ```bash
       DOCKER_EXTRA_ARGS="-v /var/run/docker.sock:/var/run/docker.sock" ./docker/run_container_dev.sh
       ```
+      Then once the container is started you will need to install some extra packages to enable launching docker containers:
+      ```bash
+      ./docker/install_docker.sh
+      ```
 
 3. Compile Morpheus
    ```bash
