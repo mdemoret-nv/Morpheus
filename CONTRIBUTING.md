@@ -78,6 +78,11 @@ This workflow utilizes a docker container to setup most dependencies ensuring a 
    ```
    1. The container tag follows the same rules as `build_container_dev.sh` and will default to the current `YYMMDD`. Specify the desired tag with `MORPHEUS_TAG`. i.e. `MORPHEUS_TAG=my_tag ./docker/run_container_dev.sh`
    2. This will automatically mount the current working directory to `/workspace`. In addition, this script sets up `SSH_AUTH_SOCK` to allow docker containers to pull from private repos.
+   3. Some of the validation tests require launching a triton docker container within the morpheus container. To enable this you will need to grant the morpheus contrainer access to your host OS's docker socket file with:
+      ```bash
+      DOCKER_EXTRA_ARGS="-v /var/run/docker.sock:/var/run/docker.sock" ./docker/run_container_dev.sh
+      ```
+
 3. Compile Morpheus
    ```bash
    ./scripts/compile.sh
