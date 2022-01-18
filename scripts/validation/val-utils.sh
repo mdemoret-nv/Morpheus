@@ -19,9 +19,10 @@ set -e +o pipefail
 # set -v
 
 function is_triton_running {
+   TRITON_IP=${TRITON_IP:-"localhost"}
    res=$(curl -s -X GET \
         --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
-        "http://localhost:8000/v2/health/ready" && echo "1" || echo "0")
+        "http://${TRITON_IP}:8000/v2/health/ready" && echo "1" || echo "0")
 
    echo $res
 }
@@ -31,11 +32,12 @@ function wait_for_triton {
    max_retries=${GPUCI_RETRY_MAX:=3}
    retries=0
    sleep_interval=${GPUCI_RETRY_SLEEP:=1}
+   TRITON_IP=${TRITON_IP:-"localhost"}
 
    status=$(curl -X GET \
            -s -w "%{http_code}" \
            --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
-           "http://localhost:8000/v2/health/ready" || echo 500)
+           "http://${TRITON_IP}:8000/v2/health/ready" || echo 500)
 
    while [[ ${status} != 200 ]] && (( ${retries} < ${max_retries} )); do
       echo -e "${y}Triton not ready. Waiting ${sleep_interval} sec...${x}"
@@ -45,7 +47,7 @@ function wait_for_triton {
       status=$(curl -X GET \
               -s -w "%{http_code}" \
               --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
-              "http://localhost:8000/v2/health/ready" || echo 500)
+              "http://${TRITON_IP}:8000/v2/health/ready" || echo 500)
 
       retries=$((retries+1))
    done
@@ -72,15 +74,17 @@ function ensure_triton_running {
       # Kill the triton container on exit
       function cleanup {
          echo "Killing Triton container"
-         docker kill triton-validation
+         docker kill ${TRITON_IMG_ID:-"triton-validation"}
       }
 
       trap cleanup EXIT
 
       echo "Launching Triton Container"
 
+      MODEL_VOLUME=${WORKSPACE_VOLUME:-${MORPHEUS_ROOT}}
       # Launch triton container in explicit mode
-      docker run --rm -ti -d --name=triton-validation --gpus=all -p8000:8000 -p8001:8001 -p8002:8002 -v ${MORPHEUS_ROOT}/models:/models ${TRITON_IMAGE} tritonserver --model-repository=/models/triton-model-repo --exit-on-error=false --model-control-mode=explicit
+      TRITON_IMG_ID=$(docker run --rm -ti -d --name=triton-validation --gpus=all -p8000:8000 -p8001:8001 -p8002:8002 -v ${MODEL_VOLUME}/models:/models ${TRITON_IMAGE} tritonserver --model-repository=/models/triton-model-repo --exit-on-error=false --model-control-mode=explicit)
+      TRITON_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${TRITON_IMG_ID})
 
       wait_for_triton
    fi
@@ -90,9 +94,10 @@ function load_triton_model {
 
    ensure_triton_running
 
+   TRITON_IP=${TRITON_IP:-"localhost"}
    # Tell Triton to load the ONNX model
    curl --request POST \
-      --url http://localhost:8000/v2/repository/models/${1}/load
+      --url http://${TRITON_IP}:8000/v2/repository/models/${1}/load
 
    echo "Model '${1}' loaded in Triton"
 }
