@@ -1,4 +1,6 @@
-# SPDX-FileCopyrightText: Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# syntax=docker/dockerfile:1
+
+# SPDX-FileCopyrightText: Copyright (c) 2021, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,7 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# syntax=docker/dockerfile:1
 
 # Args used in FROM commands must come first
 ARG FROM_IMAGE="gpuci/miniconda-cuda"
