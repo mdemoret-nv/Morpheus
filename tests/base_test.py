@@ -37,6 +37,7 @@ class BaseMorpheusTest(unittest.TestCase):
         Config._Config__default = None
         Config._Config__instance = None
 
+        # Reset the asyncio event loop
         asyncio.set_event_loop(asyncio.new_event_loop())
 
         self._morpheus_root = os.environ.get('MORPHEUS_ROOT', WORKSPACE_DIR)
@@ -45,6 +46,9 @@ class BaseMorpheusTest(unittest.TestCase):
         self._datasets_dir = os.path.join(self._models_dir, 'datasets')
         self._training_data_dir = os.path.join(self._datasets_dir, 'training-data')
         self._validation_data_dir = os.path.join(self._datasets_dir, 'validation-data')
+
+        self._expeced_data_dir = os.path.join(TESTS_DIR, 'expected_data')
+
 
     def _mk_tmp_dir(self):
         """
