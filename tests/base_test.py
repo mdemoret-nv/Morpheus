@@ -13,13 +13,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import collections
+import json
 import os
 import shutil
 import tempfile
 import unittest
 
+from morpheus.config import Config
+
+TESTS_DIR = os.path.dirname(__file__)
+WORKSPACE_DIR = os.path.dirname(TESTS_DIR)
+
 
 class BaseMorpheusTest(unittest.TestCase):
+    Results = collections.namedtuple('Results', ['total_rows', 'diff_rows', 'error_pct'])
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        # reset the config singleton
+        Config._Config__default = None
+        Config._Config__instance = None
+
+        asyncio.set_event_loop(asyncio.new_event_loop())
+
+        self._morpheus_root = os.environ.get('MORPHEUS_ROOT', WORKSPACE_DIR)
+        self._data_dir = os.path.join(self._morpheus_root, 'data')
+        self._models_dir = os.path.join(self._morpheus_root, 'models')
+        self._datasets_dir = os.path.join(self._models_dir, 'datasets')
+        self._training_data_dir = os.path.join(self._datasets_dir, 'training-data')
+        self._validation_data_dir = os.path.join(self._datasets_dir, 'validation-data')
+
     def _mk_tmp_dir(self):
         """
         Creates a temporary directory for use by tests, directory is deleted after the test is run unless the
@@ -46,3 +72,14 @@ class BaseMorpheusTest(unittest.TestCase):
                 os.environ[key] = orig_val
             else:
                 del (os.environ[key])
+
+    def _calc_error_val(self, results_file):
+        """
+        Based on the calc_error_val function in val-utils.sh
+        """
+        with open(results_file) as fh:
+            results = json.load(fh)
+
+        total_rows = results['total_rows']
+        diff_rows = results['diff_rows']
+        return self.Results(total_rows=total_rows, diff_rows=diff_rows, error_pct=(diff_rows / total_rows) * 100)
