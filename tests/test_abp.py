@@ -151,10 +151,13 @@ class TestABP(BaseMorpheusTest):
         pipe.set_source(FileSourceStage(config, filename=val_file_name, iterative=False))
         pipe.add_stage(DeserializeStage(config))
         pipe.add_stage(PreprocessFILStage(config))
+
+        # We are feeding TritonInferenceStage the port to the grpc server because that is what the validation tests do
+        # but the code under-the-hood replaces this with the port number of the http server
         pipe.add_stage(
             TritonInferenceStage(config,
                                  model_name='abp-nvsmi-xgb',
-                                 server_url='172.17.0.4:8001',
+                                 server_url='localhost:8001',
                                  force_convert_inputs=True))
         pipe.add_stage(MonitorStage(config, description="Inference Rate", smoothing=0.001, unit="inf"))
         pipe.add_stage(AddClassificationsStage(config))
