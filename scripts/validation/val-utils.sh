@@ -18,9 +18,12 @@ set -e +o pipefail
 # set -x
 # set -v
 
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+MORPHEUS_ROOT=$(realpath ${MORPHEUS_ROOT:-"${SCRIPT_DIR}/../.."})
+
 function is_triton_running {
    TRITON_IP=${TRITON_IP:-"localhost"}
-   res=$(curl -s -X GET \
+   res=$(curl -s -f -X GET \
         --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
         "http://${TRITON_IP}:8000/v2/health/ready" && echo "1" || echo "0")
 
@@ -35,7 +38,7 @@ function wait_for_triton {
    TRITON_IP=${TRITON_IP:-"localhost"}
 
    status=$(curl -X GET \
-           -s -w "%{http_code}" \
+           -s -f -w "%{http_code}" \
            --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
            "http://${TRITON_IP}:8000/v2/health/ready" || echo 500)
 
@@ -45,7 +48,7 @@ function wait_for_triton {
       sleep ${sleep_interval}
 
       status=$(curl -X GET \
-              -s -w "%{http_code}" \
+              -s -f -w "%{http_code}" \
               --retry 5 --retry-delay 2 --retry-connrefused --connect-timeout 2 \
               "http://${TRITON_IP}:8000/v2/health/ready" || echo 500)
 

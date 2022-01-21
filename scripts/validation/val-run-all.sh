@@ -20,10 +20,17 @@ set -e +o pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
+# Make sure to load the utils and globals
+source ${SCRIPT_DIR}/val-globals.sh
+source ${SCRIPT_DIR}/val-utils.sh
+
 # Make sure the .tmp folder exists
-if [[ ! -d "${SCRIPT_DIR}/../../.tmp" ]]; then
-   mkdir -p "${SCRIPT_DIR}/../../.tmp"
+if [[ ! -d "${MORPHEUS_ROOT}/.tmp" ]]; then
+   mkdir -p "${MORPHEUS_ROOT}/.tmp"
 fi
+
+# Load triton here to prevent it being closed and restarted after each command
+ensure_triton_running
 
 # Run everything once USE_CPP=False
 export USE_CPP=0

@@ -18,13 +18,14 @@ set -e +o pipefail
 # set -x
 # set -v
 
-# Override the global defaults
-RUN_PYTORCH=${RUN_PYTORCH:-1}
-RUN_TRITON_ONNX=${RUN_TRITON_ONNX:-0}
-
-
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-MORPHEUS_ROOT=$(realpath ${MORPHEUS_ROOT:-"${SCRIPT_DIR}/../../.."})
+
+# Override the global defaults
+RUN_PYTORCH=1
+RUN_TRITON_ONNX=0
+
+# Load the utility scripts
+source ${SCRIPT_DIR}/../val-run-pipeline.sh
 
 # Get the model/data from the argument. Must be 'role-g' or 'user123'
 HAMMAH_TYPE=${HAMMAH_TYPE:-$1}
@@ -39,9 +40,6 @@ MODEL_EXTENSION="${MODEL_FILENAME##*.}"
 MODEL_NAME="${MODEL_FILENAME%.*}"
 
 OUTPUT_FILE_BASE="${MORPHEUS_ROOT}/.tmp/val_${MODEL_NAME}-"
-
-# Load the utility scripts
-source ${SCRIPT_DIR}/../val-run-pipeline.sh
 
 if [[ "${RUN_PYTORCH}" = "1" ]]; then
    OUTPUT_FILE="${OUTPUT_FILE_BASE}pytorch.csv"

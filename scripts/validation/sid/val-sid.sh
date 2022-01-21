@@ -19,7 +19,9 @@ set -e +o pipefail
 # set -v
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-MORPHEUS_ROOT=$(realpath ${MORPHEUS_ROOT:-"${SCRIPT_DIR}/../../.."})
+
+# Load the utility scripts
+source ${SCRIPT_DIR}/../val-run-pipeline.sh
 
 SID_INPUT_FILE=${SID_INPUT_FILE:-"${MORPHEUS_ROOT}/models/datasets/validation-data/sid-validation-data.csv"}
 SID_TRUTH_FILE=${SID_TRUTH_FILE:-"${MORPHEUS_ROOT}/models/datasets/validation-data/sid-validation-data.csv"}
@@ -34,9 +36,6 @@ MODEL_EXTENSION="${MODEL_FILENAME##*.}"
 MODEL_NAME="${MODEL_FILENAME%.*}"
 
 OUTPUT_FILE_BASE="${MORPHEUS_ROOT}/.tmp/val_${MODEL_NAME}-"
-
-# Load the utility scripts
-source ${SCRIPT_DIR}/../val-run-pipeline.sh
 
 if [[ "${RUN_PYTORCH}" = "1" ]]; then
    OUTPUT_FILE="${OUTPUT_FILE_BASE}pytorch.csv"

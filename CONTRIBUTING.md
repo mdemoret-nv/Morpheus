@@ -66,9 +66,9 @@ This workflow utilizes a docker container to setup most dependencies ensuring a 
    ```bash
    ./docker/build_container_dev.sh
    ```
-   1. The container tag will default to `morpheus:YYMMDD` where `YYMMDD` is the current 2 digit year, month and day respectively. The tag can be overridden by setting `MORPHEUS_TAG`. For example,
+   1. The container tag will default to `morpheus:YYMMDD` where `YYMMDD` is the current 2 digit year, month and day respectively. The tag can be overridden by setting `DOCKER_IMAGE_TAG`. For example,
       ```bash
-      MORPHEUS_TAG=my_tag ./docker/build_container_dev.sh
+      DOCKER_IMAGE_TAG=my_tag ./docker/build_container_dev.sh
       ```
       Would build the container `morpheus:my_tag`.
    1. Note: This does not build any Morpheus or Neo code and defers building the code until the entire repo can be mounted into a running container. This allows for faster incremental builds during development.
@@ -76,7 +76,7 @@ This workflow utilizes a docker container to setup most dependencies ensuring a 
    ```bash
    ./docker/run_container_dev.sh
    ```
-   1. The container tag follows the same rules as `build_container_dev.sh` and will default to the current `YYMMDD`. Specify the desired tag with `MORPHEUS_TAG`. i.e. `MORPHEUS_TAG=my_tag ./docker/run_container_dev.sh`
+   1. The container tag follows the same rules as `build_container_dev.sh` and will default to the current `YYMMDD`. Specify the desired tag with `DOCKER_IMAGE_TAG`. i.e. `DOCKER_IMAGE_TAG=my_tag ./docker/run_container_dev.sh`
    2. This will automatically mount the current working directory to `/workspace`. In addition, this script sets up `SSH_AUTH_SOCK` to allow docker containers to pull from private repos.
    3. Some of the validation tests require launching a triton docker container within the morpheus container. To enable this you will need to grant the morpheus contrainer access to your host OS's docker socket file with:
       ```bash
