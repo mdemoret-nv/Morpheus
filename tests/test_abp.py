@@ -118,8 +118,10 @@ class TestABP(BaseMorpheusTest):
         self.assertEqual(results.error_pct, 0)
 
     #@unittest.skip("skip")
-    @mock.patch('tritonclient.grpc.InferenceServerClient')
-    def test_abp_cpp(self, mock_triton_client):
+    def test_abp_cpp(self):
+        mock_triton = os.path.join(self._mock_triton_servers_dir, 'abp')
+        self._launch_camouflage_triton(mock_triton)
+
         config = Config.get()
         config.mode = PipelineModes.FIL
         config.use_cpp = True
@@ -168,7 +170,7 @@ class TestABP(BaseMorpheusTest):
 
         pipe.run()
         results = self._calc_error_val(results_file_name)
-        self.assertEqual(results.error_pct, 0)
+        self.assertLess(results.error_pct, 5)
 
 
 if __name__ == '__main__':

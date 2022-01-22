@@ -1,0 +1,13 @@
+HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+{{#is request.headers.inference-header-content-length "184"}}
+Inference-Header-Content-Length: 155
+{{else}}
+Inference-Header-Content-Length: 153
+{{/is}}
+
+{{#is request.headers.inference-header-content-length "184"}}
+{{file path="./inference_resp.1.txt"}}
+{{else}}
+{{file path="./inference_resp.2.txt"}}
+{{/is}}
