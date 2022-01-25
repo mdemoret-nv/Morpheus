@@ -24,6 +24,7 @@ import tempfile
 import time
 import unittest
 
+import numpy as np
 import requests
 
 from morpheus.config import Config
@@ -97,6 +98,12 @@ class BaseMorpheusTest(unittest.TestCase):
         total_rows = results['total_rows']
         diff_rows = results['diff_rows']
         return self.Results(total_rows=total_rows, diff_rows=diff_rows, error_pct=(diff_rows / total_rows) * 100)
+
+    def _parse_np_float(self, s):
+        if s != 'nan':
+            return float(s)
+        else:
+            return np.NAN
 
     def _wait_for_camouflage(self, host="localhost", port=8000, timeout=5):
         ready = False
