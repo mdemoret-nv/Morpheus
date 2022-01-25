@@ -128,7 +128,6 @@ class TestPhishing(BaseMorpheusTest):
 
         pipe.run()
         results = self._calc_error_val(results_file_name)
-        print(results.error_pct)
         self.assertLess(results.error_pct, 80)
 
 
