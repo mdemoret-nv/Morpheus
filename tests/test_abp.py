@@ -118,8 +118,7 @@ class TestABP(BaseMorpheusTest):
         self.assertEqual(results.error_pct, 0)
 
     def test_abp_cpp(self):
-        mock_triton = os.path.join(self._mock_triton_servers_dir, 'abp')
-        self._launch_camouflage_triton(mock_triton)
+        self._launch_camouflage_triton()
 
         config = Config.get()
         config.mode = PipelineModes.FIL

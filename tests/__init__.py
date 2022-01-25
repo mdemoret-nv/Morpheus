@@ -31,6 +31,7 @@ from morpheus.config import Config
 
 TESTS_DIR = os.path.dirname(__file__)
 WORKSPACE_DIR = os.path.dirname(TESTS_DIR)
+MOCK_TRITON_DIR = os.path.join(TESTS_DIR, 'mock_triton_server')
 
 #logging.basicConfig(level=logging.INFO)
 
@@ -48,7 +49,7 @@ class BaseMorpheusTest(unittest.TestCase):
         self._validation_data_dir = os.path.join(self._datasets_dir, 'validation-data')
 
         self._expeced_data_dir = os.path.join(TESTS_DIR, 'expected_data')
-        self._mock_triton_servers_dir = os.path.join(TESTS_DIR, 'mock_triton_servers')
+        self._mock_triton_servers_dir = MOCK_TRITON_DIR
 
     def tearDown(self) -> None:
         # reset the config singleton work-around for #68
@@ -138,7 +139,7 @@ class BaseMorpheusTest(unittest.TestCase):
                 time.sleep(sleep_time)
                 elapsed_time += sleep_time
 
-    def _launch_camouflage_triton(self, root_dir, config="config.yml", timeout=5):
+    def _launch_camouflage_triton(self, root_dir=MOCK_TRITON_DIR, config="config.yml", timeout=5):
         """
         Launches a mock triton server using camouflage (https://testinggospels.github.io/camouflage/) with a package
         rooted at `root_dir` and configured with `config`.

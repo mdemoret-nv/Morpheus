@@ -7,7 +7,7 @@ Inference-Header-Content-Length: 153
 {{/is}}
 
 {{#is request.headers.inference-header-content-length "184"}}
-{{file path="./inference_resp.1.txt"}}
+{{file path="./payloads/abp/abp_infer_resp.1.body"}}
 {{else}}
-{{file path="./inference_resp.2.txt"}}
+{{file path="./payloads/abp/abp_infer_resp.2.body"}}
 {{/is}}
