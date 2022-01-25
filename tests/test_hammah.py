@@ -20,7 +20,7 @@ import unittest
 from morpheus.config import Config
 from morpheus.config import ConfigAutoEncoder
 from morpheus.config import PipelineModes
-from tests.base_test import BaseMorpheusTest
+from tests import BaseMorpheusTest
 
 
 class TestHammah(BaseMorpheusTest):

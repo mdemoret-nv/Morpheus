@@ -31,21 +31,13 @@ from morpheus.config import Config
 TESTS_DIR = os.path.dirname(__file__)
 WORKSPACE_DIR = os.path.dirname(TESTS_DIR)
 
+#logging.basicConfig(level=logging.INFO)
 
 class BaseMorpheusTest(unittest.TestCase):
     Results = collections.namedtuple('Results', ['total_rows', 'diff_rows', 'error_pct'])
 
     def setUp(self) -> None:
         super().setUp()
-
-        # reset the config singleton
-        Config._Config__default = None
-        Config._Config__instance = None
-
-        # Reset the asyncio event loop
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            asyncio.set_event_loop(asyncio.new_event_loop())
 
         self._morpheus_root = os.environ.get('MORPHEUS_ROOT', WORKSPACE_DIR)
         self._data_dir = os.path.join(self._morpheus_root, 'data')
@@ -56,6 +48,16 @@ class BaseMorpheusTest(unittest.TestCase):
 
         self._expeced_data_dir = os.path.join(TESTS_DIR, 'expected_data')
         self._mock_triton_servers_dir = os.path.join(TESTS_DIR, 'mock_triton_servers')
+
+    def tearDown(self) -> None:
+        # reset the config singleton work-around for #68
+        Config._Config__default = None
+        Config._Config__instance = None
+
+        # Reset the asyncio event loop work-around for #69
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            asyncio.set_event_loop(asyncio.new_event_loop())
 
 
     def _mk_tmp_dir(self):

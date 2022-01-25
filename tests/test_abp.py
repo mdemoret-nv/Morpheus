@@ -23,7 +23,7 @@ import tritonclient.grpc
 
 from morpheus.config import Config
 from morpheus.config import PipelineModes
-from tests.base_test import BaseMorpheusTest
+from tests import BaseMorpheusTest
 
 FEATURE_LENGTH = 29
 MODEL_MAX_BATCH_SIZE = 1024
@@ -33,7 +33,7 @@ class TestABP(BaseMorpheusTest):
     """
     End-to-end test intended to imitate the ABP validation test
     """
-    @unittest.skip("skip")
+
     @mock.patch('tritonclient.grpc.InferenceServerClient')
     def test_abp_no_cpp(self, mock_triton_client):
         mock_metadata = {
@@ -117,7 +117,6 @@ class TestABP(BaseMorpheusTest):
         results = self._calc_error_val(results_file_name)
         self.assertEqual(results.error_pct, 0)
 
-    #@unittest.skip("skip")
     def test_abp_cpp(self):
         mock_triton = os.path.join(self._mock_triton_servers_dir, 'abp')
         self._launch_camouflage_triton(mock_triton)

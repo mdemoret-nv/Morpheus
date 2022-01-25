@@ -16,7 +16,7 @@
 
 import unittest
 
-from tests.base_test import BaseMorpheusTest
+from tests import BaseMorpheusTest
 
 
 class TestPackage(BaseMorpheusTest):

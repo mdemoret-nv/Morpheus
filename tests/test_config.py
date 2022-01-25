@@ -21,7 +21,7 @@ from unittest import mock
 
 import docker
 from morpheus import config
-from tests.base_test import BaseMorpheusTest
+from tests import BaseMorpheusTest
 
 
 class TestConfig(BaseMorpheusTest):
