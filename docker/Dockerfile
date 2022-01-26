@@ -105,6 +105,9 @@ RUN conda config --env --add channels conda-forge &&\
     conda config --env --add channels nvidia &&\
     conda config --env --add channels rapidsai
 
+# Install camouflage needed for unittests to mock a triton server
+RUN npm install -g camouflage-server
+
 # Install nvidia-pyindex which is needed for tritonclient[all] but must be
 # installed before setup is run. Also force reinstall of just streamz since it
 # gets installed as a dependency of custreamz. The arguments `--upgrade
