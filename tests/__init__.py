@@ -100,11 +100,8 @@ class BaseMorpheusTest(unittest.TestCase):
         diff_rows = results['diff_rows']
         return self.Results(total_rows=total_rows, diff_rows=diff_rows, error_pct=(diff_rows / total_rows) * 100)
 
-    def _parse_np_float(self, s):
-        if s != 'nan':
-            return float(s)
-        else:
-            return np.NAN
+    def _partition_array(self, array, chunk_size):
+        return np.split(array, range(chunk_size, len(array), chunk_size))
 
     def _wait_for_camouflage(self, host="localhost", port=8000, timeout=5):
         ready = False

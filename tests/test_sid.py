@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import csv
 import os
 import unittest
 from unittest import mock
@@ -25,23 +26,24 @@ from morpheus.config import Config
 from morpheus.config import PipelineModes
 from tests import BaseMorpheusTest
 
-FEATURE_LENGTH = 29
-MODEL_MAX_BATCH_SIZE = 1024
+FEATURE_LENGTH = 256
+MODEL_MAX_BATCH_SIZE = 32
 
 
-class TestABP(BaseMorpheusTest):
+class TestSid(BaseMorpheusTest):
     """
     End-to-end test intended to imitate the ABP validation test
     """
-
     @mock.patch('tritonclient.grpc.InferenceServerClient')
-    def test_abp_no_cpp(self, mock_triton_client):
+    def test_minibert_no_cpp(self, mock_triton_client):
         mock_metadata = {
             "inputs": [{
-                'name': 'input__0', 'datatype': 'FP32', "shape": [-1, FEATURE_LENGTH]
+                "name": "input_ids", "datatype": "INT32", "shape": [-1, FEATURE_LENGTH]
+            }, {
+                "name": "attention_mask", "datatype": "INT32", "shape": [-1, FEATURE_LENGTH]
             }],
             "outputs": [{
-                'name': 'output__0', 'datatype': 'FP32', 'shape': ['-1', '1']
+                "name": "output", "datatype": "FP32", "shape": [-1, 10]
             }]
         }
         mock_model_config = {"config": {"max_batch_size": MODEL_MAX_BATCH_SIZE}}
@@ -53,7 +55,7 @@ class TestABP(BaseMorpheusTest):
         mock_triton_client.get_model_metadata.return_value = mock_metadata
         mock_triton_client.get_model_config.return_value = mock_model_config
 
-        data = np.loadtxt(os.path.join(self._expeced_data_dir, 'triton_abp_inf_results.csv'), delimiter=',')
+        data = np.loadtxt(os.path.join(self._expeced_data_dir, 'triton_sid_inf_results.csv'), delimiter=',')
         inf_results = self._partition_array(data, MODEL_MAX_BATCH_SIZE)
 
         mock_infer_result = mock.MagicMock()
@@ -65,9 +67,20 @@ class TestABP(BaseMorpheusTest):
         mock_triton_client.async_infer.side_effect = async_infer
 
         config = Config.get()
-        config.mode = PipelineModes.FIL
+        config.mode = PipelineModes.NLP
         config.use_cpp = False
-        config.class_labels = ["mining"]
+        config.class_labels = [
+            "address",
+            "bank_acct",
+            "credit_card",
+            "email",
+            "govt_id",
+            "name",
+            "password",
+            "phone_num",
+            "secret_keys",
+            "user"
+        ]
         config.model_max_batch_size = MODEL_MAX_BATCH_SIZE
         config.pipeline_batch_size = 1024
         config.feature_length = FEATURE_LENGTH
@@ -83,22 +96,31 @@ class TestABP(BaseMorpheusTest):
         from morpheus.pipeline.output.to_file import WriteToFileStage
         from morpheus.pipeline.output.validation import ValidationStage
         from morpheus.pipeline.preprocessing import DeserializeStage
-        from morpheus.pipeline.preprocessing import PreprocessFILStage
+        from morpheus.pipeline.preprocessing import PreprocessNLPStage
+
+        val_file_name = os.path.join(self._validation_data_dir, 'sid-validation-data.csv')
+        vocab_file_name = os.path.join(self._data_dir, 'bert-base-uncased-hash.txt')
 
         temp_dir = self._mk_tmp_dir()
-        val_file_name = os.path.join(self._validation_data_dir, 'abp-validation-data.jsonlines')
-
         out_file = os.path.join(temp_dir, 'results.csv')
         results_file_name = os.path.join(temp_dir, 'results.json')
 
         pipe = LinearPipeline(config)
         pipe.set_source(FileSourceStage(config, filename=val_file_name, iterative=False))
         pipe.add_stage(DeserializeStage(config))
-        pipe.add_stage(PreprocessFILStage(config))
         pipe.add_stage(
-            TritonInferenceStage(config, model_name='abp-nvsmi-xgb', server_url='test:0000', force_convert_inputs=True))
+            PreprocessNLPStage(config,
+                               vocab_hash_file=vocab_file_name,
+                               truncation=True,
+                               do_lower_case=True,
+                               add_special_tokens=False))
+        pipe.add_stage(
+            TritonInferenceStage(config,
+                                 model_name='sid-minibert-onnx',
+                                 server_url='fake:001',
+                                 force_convert_inputs=True))
         pipe.add_stage(MonitorStage(config, description="Inference Rate", smoothing=0.001, unit="inf"))
-        pipe.add_stage(AddClassificationsStage(config))
+        pipe.add_stage(AddClassificationsStage(config, threshold=0.5, prefix="si_"))
         pipe.add_stage(
             ValidationStage(config, val_file_name=val_file_name, results_file_name=results_file_name, rel_tol=0.05))
         pipe.add_stage(SerializeStage(config, output_type="pandas"))
@@ -106,15 +128,26 @@ class TestABP(BaseMorpheusTest):
 
         pipe.run()
         results = self._calc_error_val(results_file_name)
-        self.assertEqual(results.error_pct, 0)
+        self.assertLess(results.error_pct, 70)
 
-    def test_abp_cpp(self):
+    def test_minibert_cpp(self):
         self._launch_camouflage_triton()
 
         config = Config.get()
-        config.mode = PipelineModes.FIL
+        config.mode = PipelineModes.NLP
         config.use_cpp = True
-        config.class_labels = ["mining"]
+        config.class_labels = [
+            "address",
+            "bank_acct",
+            "credit_card",
+            "email",
+            "govt_id",
+            "name",
+            "password",
+            "phone_num",
+            "secret_keys",
+            "user"
+        ]
         config.model_max_batch_size = MODEL_MAX_BATCH_SIZE
         config.pipeline_batch_size = 1024
         config.feature_length = FEATURE_LENGTH
@@ -130,28 +163,31 @@ class TestABP(BaseMorpheusTest):
         from morpheus.pipeline.output.to_file import WriteToFileStage
         from morpheus.pipeline.output.validation import ValidationStage
         from morpheus.pipeline.preprocessing import DeserializeStage
-        from morpheus.pipeline.preprocessing import PreprocessFILStage
+        from morpheus.pipeline.preprocessing import PreprocessNLPStage
+
+        val_file_name = os.path.join(self._validation_data_dir, 'sid-validation-data.csv')
+        vocab_file_name = os.path.join(self._data_dir, 'bert-base-uncased-hash.txt')
 
         temp_dir = self._mk_tmp_dir()
-        val_file_name = os.path.join(self._validation_data_dir, 'abp-validation-data.jsonlines')
-
         out_file = os.path.join(temp_dir, 'results.csv')
         results_file_name = os.path.join(temp_dir, 'results.json')
 
         pipe = LinearPipeline(config)
         pipe.set_source(FileSourceStage(config, filename=val_file_name, iterative=False))
         pipe.add_stage(DeserializeStage(config))
-        pipe.add_stage(PreprocessFILStage(config))
-
-        # We are feeding TritonInferenceStage the port to the grpc server because that is what the validation tests do
-        # but the code under-the-hood replaces this with the port number of the http server
+        pipe.add_stage(
+            PreprocessNLPStage(config,
+                               vocab_hash_file=vocab_file_name,
+                               truncation=True,
+                               do_lower_case=True,
+                               add_special_tokens=False))
         pipe.add_stage(
             TritonInferenceStage(config,
-                                 model_name='abp-nvsmi-xgb',
+                                 model_name='sid-minibert-onnx',
                                  server_url='localhost:8001',
                                  force_convert_inputs=True))
         pipe.add_stage(MonitorStage(config, description="Inference Rate", smoothing=0.001, unit="inf"))
-        pipe.add_stage(AddClassificationsStage(config))
+        pipe.add_stage(AddClassificationsStage(config, threshold=0.5, prefix="si_"))
         pipe.add_stage(
             ValidationStage(config, val_file_name=val_file_name, results_file_name=results_file_name, rel_tol=0.05))
         pipe.add_stage(SerializeStage(config, output_type="pandas"))
@@ -159,7 +195,7 @@ class TestABP(BaseMorpheusTest):
 
         pipe.run()
         results = self._calc_error_val(results_file_name)
-        self.assertLess(results.error_pct, 5)
+        self.assertLess(results.error_pct, 65)
 
 
 if __name__ == '__main__':

@@ -55,19 +55,8 @@ class TestPhishing(BaseMorpheusTest):
         mock_triton_client.get_model_metadata.return_value = mock_metadata
         mock_triton_client.get_model_config.return_value = mock_model_config
 
-        chunk = []
-        inf_results = []
-        with open(os.path.join(self._expeced_data_dir, 'triton_phishing_inf_results.csv')) as fh:
-            reader = csv.reader(fh)
-            for row in reader:
-                parsed_row = [self._parse_np_float(v) for v in row]
-                chunk.append(parsed_row)
-                if len(chunk) == MODEL_MAX_BATCH_SIZE:
-                    inf_results.append(np.array(chunk))
-                    chunk = []
-
-        if len(chunk):
-            inf_results.append(np.array(chunk))
+        data = np.loadtxt(os.path.join(self._expeced_data_dir, 'triton_phishing_inf_results.csv'), delimiter=',')
+        inf_results = self._partition_array(data, MODEL_MAX_BATCH_SIZE)
 
         mock_infer_result = mock.MagicMock()
         mock_infer_result.as_numpy.side_effect = inf_results
