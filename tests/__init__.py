@@ -35,6 +35,7 @@ MOCK_TRITON_DIR = os.path.join(TESTS_DIR, 'mock_triton_server')
 
 #logging.basicConfig(level=logging.INFO)
 
+
 class BaseMorpheusTest(unittest.TestCase):
     Results = collections.namedtuple('Results', ['total_rows', 'diff_rows', 'error_pct'])
 
@@ -54,12 +55,6 @@ class BaseMorpheusTest(unittest.TestCase):
     def tearDown(self) -> None:
         # reset the config singleton
         Config.reset()
-
-        # Reset the asyncio event loop work-around for #69
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            asyncio.set_event_loop(asyncio.new_event_loop())
-
 
     def _mk_tmp_dir(self):
         """
