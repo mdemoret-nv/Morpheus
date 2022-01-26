@@ -52,9 +52,8 @@ class BaseMorpheusTest(unittest.TestCase):
         self._mock_triton_servers_dir = MOCK_TRITON_DIR
 
     def tearDown(self) -> None:
-        # reset the config singleton work-around for #68
-        Config._Config__default = None
-        Config._Config__instance = None
+        # reset the config singleton
+        Config.reset()
 
         # Reset the asyncio event loop work-around for #69
         loop = asyncio.get_event_loop()

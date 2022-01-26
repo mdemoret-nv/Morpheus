@@ -210,3 +210,9 @@ class Config(ConfigBase):
 
         # Using JSON serializer for now since its easier to read. pprint is more compact
         return json.dumps(dataclasses.asdict(self), indent=2, sort_keys=True)
+
+    @classmethod
+    def reset(cls):
+        cls.__default = None
+        cls.__instance = None
+        cls.__is_creating = False
