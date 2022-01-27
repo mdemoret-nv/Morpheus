@@ -35,7 +35,7 @@ function(find_and_configure_tritonclient version)
       PATCH_COMMAND   git checkout -- . && git apply --whitespace=fix ${PROJECT_SOURCE_DIR}/cmake/deps/patches/TritonClient.patch
       OPTIONS         "TRITON_VERSION r${version}"
                       "TRITON_ENABLE_CC_HTTP ON"
-                      "TRITON_ENABLE_CC_GRPC OFF"
+                      "TRITON_ENABLE_CC_GRPC ON"
                       "TRITON_ENABLE_GPU ON"
                       "TRITON_COMMON_REPO_TAG r${version}"
                       "TRITON_CORE_REPO_TAG r${version}"

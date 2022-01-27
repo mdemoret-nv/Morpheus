@@ -90,9 +90,10 @@ PYBIND11_MODULE(stages, m)
                            size_t max_batch_size,
                            std::string topic,
                            int32_t batch_timeout_ms,
-                           std::map<std::string, std::string> config) {
-                 auto stage =
-                     std::make_shared<KafkaSourceStage>(parent, name, max_batch_size, topic, batch_timeout_ms, config);
+                           std::map<std::string, std::string> config,
+                           bool disable_commits) {
+                 auto stage = std::make_shared<KafkaSourceStage>(
+                     parent, name, max_batch_size, topic, batch_timeout_ms, config, disable_commits);
 
                  parent.register_node<FileSourceStage::source_type_t, FileSourceStage::source_type_t>(stage);
 
@@ -103,7 +104,8 @@ PYBIND11_MODULE(stages, m)
              py::arg("max_batch_size"),
              py::arg("topic"),
              py::arg("batch_timeout_ms"),
-             py::arg("config"));
+             py::arg("config"),
+             py::arg("disable_commits") = false);
 
     py::class_<DeserializeStage, neo::SegmentObject, std::shared_ptr<DeserializeStage>>(
         m, "DeserializeStage", py::multiple_inheritance())

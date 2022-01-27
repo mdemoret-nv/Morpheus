@@ -28,10 +28,12 @@
 #include <sstream>
 #include <utility>
 
+#include "model_config.pb.h"
 #include "morpheus/common.hpp"
 #include "morpheus/messages.hpp"
 #include "morpheus/type_utils.hpp"
 
+#include <grpc_client.h>
 #include <http_client.h>
 #include <librdkafka/rdkafkacpp.h>
 #include <pybind11/gil.h>
@@ -222,13 +224,15 @@ class KafkaSourceStage : public pyneo::PythonSource<std::shared_ptr<MessageMeta>
                      size_t max_batch_size,
                      std::string topic,
                      int32_t batch_timeout_ms,
-                     std::map<std::string, std::string> config) :
+                     std::map<std::string, std::string> config,
+                     bool disable_commit = false) :
       neo::SegmentObject(parent, name),
       base_t(parent, name),
       m_max_batch_size(max_batch_size),
       m_topic(std::move(topic)),
       m_batch_timeout_ms(batch_timeout_ms),
-      m_config(std::move(config))
+      m_config(std::move(config)),
+      m_disable_commit(disable_commit)
     {
         // Create a consumer. Shared by all threads
         m_consumer = this->create_consumer();
@@ -327,6 +331,19 @@ class KafkaSourceStage : public pyneo::PythonSource<std::shared_ptr<MessageMeta>
         config_out.merge(defaults);
 
         m_requires_commit = config_out["enable.auto.commit"] == "false";
+
+        if (m_requires_commit && m_disable_commit)
+        {
+            LOG(WARNING) << "KafkaSourceStage: Commits have been disabled for this Kafka consumer. This should only be "
+                            "used in a debug environment";
+            m_requires_commit = false;
+        }
+        else if (!m_requires_commit && m_disable_commit)
+        {
+            // User has auto-commit on and disable commit at same time
+            LOG(WARNING) << "KafkaSourceStage: The config option 'enable.auto.commit' was set to True but commits have "
+                            "been disabled for this Kafka consumer. This should only be used in a debug environment";
+        }
 
         // Make the kafka_conf and set all properties
         auto kafka_conf = std::unique_ptr<RdKafka::Conf>(RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
@@ -441,6 +458,7 @@ class KafkaSourceStage : public pyneo::PythonSource<std::shared_ptr<MessageMeta>
     std::string m_topic{"test_pcap"};
     uint32_t m_batch_timeout_ms{100};
     std::map<std::string, std::string> m_config;
+    bool m_disable_commit{false};
 
     bool m_requires_commit{false};  // Whether or not manual committing is required
     std::unique_ptr<RdKafka::KafkaConsumer> m_consumer;
@@ -840,9 +858,9 @@ class InferenceClientStage
     {
         std::string server_url = m_server_url;
 
-        std::unique_ptr<tc::InferenceServerHttpClient> client;
+        std::unique_ptr<tc::InferenceServerGrpcClient> client;
 
-        auto result = tc::InferenceServerHttpClient::Create(&client, server_url, false);
+        auto result = tc::InferenceServerGrpcClient::Create(&client, server_url, false);
 
         // Now load the input/outputs for the model
         bool is_server_live = false;
@@ -852,9 +870,9 @@ class InferenceClientStage
         if (!status.IsOk() && this->is_default_grpc_port(server_url))
         {
             // We are using the default gRPC port, try the default HTTP
-            std::unique_ptr<tc::InferenceServerHttpClient> unique_client;
+            std::unique_ptr<tc::InferenceServerGrpcClient> unique_client;
 
-            auto result = tc::InferenceServerHttpClient::Create(&unique_client, server_url, false);
+            auto result = tc::InferenceServerGrpcClient::Create(&unique_client, server_url, false);
 
             client = std::move(unique_client);
 
@@ -885,25 +903,28 @@ class InferenceClientStage
             throw std::runtime_error("Model is not ready");
 
         std::string model_metadata_json;
-        CHECK_TRITON(client->ModelMetadata(&model_metadata_json, this->m_model_name));
+        inference::ModelMetadataResponse model_metadata;
 
-        auto model_metadata = json::parse(model_metadata_json);
+        CHECK_TRITON(client->ModelMetadata(&model_metadata, this->m_model_name));
+
+        // auto model_metadata = json::parse(model_metadata_json);
 
         std::string model_config_json;
-        CHECK_TRITON(client->ModelConfig(&model_config_json, this->m_model_name));
+        inference::ModelConfigResponse model_config;
+        CHECK_TRITON(client->ModelConfig(&model_config, this->m_model_name));
 
-        auto model_config = json::parse(model_config_json);
+        // auto model_config = json::parse(model_config_json);
 
-        if (model_config.contains("max_batch_size"))
+        if (model_config.config().max_batch_size() > 0)
         {
-            m_max_batch_size = model_config.at("max_batch_size").get<int>();
+            m_max_batch_size = model_config.config().max_batch_size();
         }
 
-        for (auto const& input : model_metadata.at("inputs"))
+        for (auto const& input : model_metadata.inputs())
         {
-            auto shape = input.at("shape").get<std::vector<int>>();
+            auto shape = std::vector<int>{input.shape().begin(), input.shape().end()};
 
-            auto dtype = DType::from_triton(input.at("datatype").get<std::string>());
+            auto dtype = DType::from_triton(input.datatype());
 
             size_t bytes = dtype.item_size();
 
@@ -917,26 +938,21 @@ class InferenceClientStage
                 bytes *= y;
             }
 
-            std::string mapped_name = input.at("name").get<std::string>();
+            std::string mapped_name = input.name();
 
             if (m_inout_mapping.find(mapped_name) != m_inout_mapping.end())
             {
                 mapped_name = m_inout_mapping[mapped_name];
             }
 
-            m_model_inputs.push_back(TritonInOut{input.at("name").get<std::string>(),
-                                                 bytes,
-                                                 DType::from_triton(input.at("datatype").get<std::string>()),
-                                                 shape,
-                                                 mapped_name,
-                                                 0});
+            m_model_inputs.push_back(TritonInOut{input.name(), bytes, dtype, shape, mapped_name, 0});
         }
 
-        for (auto const& output : model_metadata.at("outputs"))
+        for (auto const& output : model_metadata.outputs())
         {
-            auto shape = output.at("shape").get<std::vector<int>>();
+            auto shape = std::vector<int>{output.shape().begin(), output.shape().end()};
 
-            auto dtype = DType::from_triton(output.at("datatype").get<std::string>());
+            auto dtype = DType::from_triton(output.datatype());
 
             size_t bytes = dtype.item_size();
 
@@ -950,15 +966,14 @@ class InferenceClientStage
                 bytes *= y;
             }
 
-            std::string mapped_name = output.at("name").get<std::string>();
+            std::string mapped_name = output.name();
 
             if (m_inout_mapping.find(mapped_name) != m_inout_mapping.end())
             {
                 mapped_name = m_inout_mapping[mapped_name];
             }
 
-            m_model_outputs.push_back(
-                TritonInOut{output.at("name").get<std::string>(), bytes, dtype, shape, mapped_name, 0});
+            m_model_outputs.push_back(TritonInOut{output.name(), bytes, dtype, shape, mapped_name, 0});
         }
     }
 
