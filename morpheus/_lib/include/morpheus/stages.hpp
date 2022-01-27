@@ -980,9 +980,9 @@ class InferenceClientStage
     operator_fn_t build_operator()
     {
         return [this](neo::Observable<reader_type_t>& input, neo::Subscriber<writer_type_t>& output) {
-            std::unique_ptr<tc::InferenceServerHttpClient> client;
+            std::unique_ptr<tc::InferenceServerGrpcClient> client;
 
-            CHECK_TRITON(tc::InferenceServerHttpClient::Create(&client, m_server_url, false));
+            CHECK_TRITON(tc::InferenceServerGrpcClient::Create(&client, m_server_url, false));
 
             return input.subscribe(neo::make_observer<reader_type_t>(
                 [this, &output, &client](reader_type_t&& x) {
