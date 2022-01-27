@@ -39,6 +39,7 @@ dependencies:
 - numpydoc
 - pip
 - pydot
+- pytest
 - python-graphviz
 - python=3.8
 - rapidjson
