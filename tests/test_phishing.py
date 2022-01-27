@@ -34,6 +34,7 @@ class TestPhishing(BaseMorpheusTest):
     """
     End-to-end test intended to imitate the ABP validation test
     """
+    @unittest.skipIf(os.environ.get("MORPHEUS_SKIP_SLOW_TESTS") is not None, "MORPHEUS_SKIP_SLOW_TESTS is defined")
     @mock.patch('tritonclient.grpc.InferenceServerClient')
     def test_email_no_cpp(self, mock_triton_client):
         mock_metadata = {
@@ -119,6 +120,7 @@ class TestPhishing(BaseMorpheusTest):
         results = self._calc_error_val(results_file_name)
         self.assertLess(results.error_pct, 80)
 
+    @unittest.skipIf(os.environ.get("MORPHEUS_SKIP_SLOW_TESTS") is not None, "MORPHEUS_SKIP_SLOW_TESTS is defined")
     def test_email_cpp(self):
         self._launch_camouflage_triton()
 

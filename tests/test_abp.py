@@ -34,6 +34,7 @@ class TestABP(BaseMorpheusTest):
     End-to-end test intended to imitate the ABP validation test
     """
 
+    @unittest.skipIf(os.environ.get("MORPHEUS_SKIP_SLOW_TESTS") is not None, "MORPHEUS_SKIP_SLOW_TESTS is defined")
     @mock.patch('tritonclient.grpc.InferenceServerClient')
     def test_abp_no_cpp(self, mock_triton_client):
         mock_metadata = {
@@ -108,6 +109,7 @@ class TestABP(BaseMorpheusTest):
         results = self._calc_error_val(results_file_name)
         self.assertEqual(results.error_pct, 0)
 
+    @unittest.skipIf(os.environ.get("MORPHEUS_SKIP_SLOW_TESTS") is not None, "MORPHEUS_SKIP_SLOW_TESTS is defined")
     def test_abp_cpp(self):
         self._launch_camouflage_triton()
 
