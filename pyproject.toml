@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 addopts = "--no-header"
 
 filterwarnings = [
-   'ignore:coroutine \'BaseEventLoop.shutdown_asyncgens\' was never awaited',
+   "ignore:coroutine 'BaseEventLoop.shutdown_asyncgens' was never awaited",
    'ignore:Initializing zero-element tensors is a no-op',
    'ignore:`np.MachAr` is deprecated \(NumPy 1.22\).',
    'ignore:`cupy.bool` is a deprecated alias for the Python scalar type `bool`. Please use the builtin `bool` or its corresponding NumPy scalar type `cupy.bool_` instead.',
