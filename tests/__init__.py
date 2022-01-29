@@ -30,7 +30,13 @@ import requests
 from morpheus.config import Config
 
 TESTS_DIR = os.path.dirname(__file__)
-WORKSPACE_DIR = os.path.dirname(TESTS_DIR)
+WORKSPACE_DIR = os.environ.get('MORPHEUS_ROOT', os.path.dirname(TESTS_DIR))
+DATA_DIR = os.path.join(WORKSPACE_DIR, 'data')
+MODELS_DIR = os.path.join(WORKSPACE_DIR, 'models')
+DATASETS_DIR = os.path.join(MODELS_DIR, 'datasets')
+TRAINING_DATA_DIR = os.path.join(DATASETS_DIR, 'training-data')
+VALIDATION_DATA_DIR = os.path.join(DATASETS_DIR, 'validation-data')
+EXPECTED_DATA_DIR = os.path.join(TESTS_DIR, 'expected_data')
 MOCK_TRITON_DIR = os.path.join(TESTS_DIR, 'mock_triton_server')
 
 #logging.basicConfig(level=logging.INFO)
@@ -42,14 +48,13 @@ class BaseMorpheusTest(unittest.TestCase):
     def setUp(self) -> None:
         super().setUp()
 
-        self._morpheus_root = os.environ.get('MORPHEUS_ROOT', WORKSPACE_DIR)
-        self._data_dir = os.path.join(self._morpheus_root, 'data')
-        self._models_dir = os.path.join(self._morpheus_root, 'models')
-        self._datasets_dir = os.path.join(self._models_dir, 'datasets')
-        self._training_data_dir = os.path.join(self._datasets_dir, 'training-data')
-        self._validation_data_dir = os.path.join(self._datasets_dir, 'validation-data')
-
-        self._expeced_data_dir = os.path.join(TESTS_DIR, 'expected_data')
+        self._morpheus_root = WORKSPACE_DIR
+        self._data_dir = DATA_DIR
+        self._models_dir = MODELS_DIR
+        self._datasets_dir = DATASETS_DIR
+        self._training_data_dir = TRAINING_DATA_DIR
+        self._validation_data_dir = VALIDATION_DATA_DIR
+        self._expeced_data_dir = EXPECTED_DATA_DIR
         self._mock_triton_servers_dir = MOCK_TRITON_DIR
 
     def tearDown(self) -> None:
