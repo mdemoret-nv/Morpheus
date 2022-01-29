@@ -58,6 +58,10 @@ TO_FILE_ARGS = ['to-file', '--filename=out.csv']
 FILE_SRC_ARGS = ['from-file', '--filename', os.path.join(VALIDATION_DATA_DIR, 'abp-validation-data.jsonlines')]
 INF_TRITON_ARGS = ['inf-triton', '--model_name=test-model', '--server_url=test:123', '--force_convert_inputs=True']
 
+KAFKA_BOOTS = ['--bootstrap_servers', 'kserv1:123,kserv2:321']
+FROM_KAFKA_ARGS = ['from-kafka', '--input_topic', 'test_topic'] + KAFKA_BOOTS
+TO_KAFKA_ARGS = ['to-kafka',  '--output_topic', 'test_topic'] + KAFKA_BOOTS
+
 class TestCli(BaseMorpheusTest):
     def _replace_results_callback(self, group, exit_val=47):
         """
@@ -164,8 +168,7 @@ class TestCli(BaseMorpheusTest):
                 'preprocess', 'inf-pytorch', 'add-scores'] + \
                INF_TRITON_ARGS + \
                ['timeseries', '--resolution=1m', '--zscore_threshold=8.0', '--hot_start'] + \
-               MONITOR_ARGS + VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS + \
-               ['to-kafka', '--bootstrap_servers', 'kserv1:123,kserv2:321', '--output_topic', 'test_topic']
+               MONITOR_ARGS + VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS + TO_KAFKA_ARGS
 
         callback_values = self._replace_results_callback(cli.pipeline_ae)
 
@@ -229,6 +232,9 @@ class TestCli(BaseMorpheusTest):
 
 
     def test_pipeline_fil(self):
+        """
+        Creates a pipeline roughly matching that of the abp validation test
+        """
         args = GENERAL_ARGS + ['pipeline-fil'] + FILE_SRC_ARGS + ['deserialize', 'preprocess'] + INF_TRITON_ARGS + \
                MONITOR_ARGS + ['add-class'] + VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS
 
@@ -285,6 +291,26 @@ class TestCli(BaseMorpheusTest):
 
         self.assertIsInstance(to_file, WriteToFileStage)
         self.assertEqual(to_file._output_file, 'out.csv')
+
+
+    def test_pipeline_fil_all(self):
+        """
+        Attempt to add all possible stages to the pipeline_fil, even if the pipeline doesn't
+        actually make sense, just test that cli could assemble it
+        """
+        args = GENERAL_ARGS + ['pipeline-fil'] + FILE_SRC_ARGS + \
+               ['from_kafka',
+                'deserialize', 'filter',
+                'dropna', '--column', 'xyz',
+                'preprocess', 'add-scores'] + \
+               INF_TRITON_ARGS + \
+               MONITOR_ARGS + ['add-class'] + VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS + FROM_KAFKA_ARGS
+
+        callback_values = self._replace_results_callback(cli.pipeline_fil)
+
+        runner = CliRunner()
+        result = runner.invoke(cli.cli, args)
+        self.assertEqual(result.exit_code, 47, result.output)
 
 
 if __name__ == '__main__':
