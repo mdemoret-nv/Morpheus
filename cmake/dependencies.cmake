@@ -54,7 +54,7 @@ message(VERBOSE "FIND_LIBRARY_USE_LIB64_PATHS: " ${FIND_LIBRARY_USE_LIB64_PATHS}
 # Before loading neo, load protobuf via config
 find_package(Protobuf REQUIRED)
 
-set(RAPIDS_VERSION "21.10" CACHE STRING "Global default version for all Rapids project dependencies")
+set(RAPIDS_VERSION "21.12" CACHE STRING "Global default version for all Rapids project dependencies")
 
 # Should find Neo First
 set(NEO_VERSION "0.1" CACHE STRING "Which version of Neo to use")
