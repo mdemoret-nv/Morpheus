@@ -13,6 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+diff --git a/src/c++/CMakeLists.txt b/src/c++/CMakeLists.txt
+index 1b63596..026fda1 100644
+--- a/src/c++/CMakeLists.txt
++++ b/src/c++/CMakeLists.txt
+@@ -92,7 +92,7 @@ endif() # TRITON_ENABLE_CC_HTTP OR TRITON_ENABLE_PERF_ANALYZER
+ #
+ if(TRITON_ENABLE_CC_GRPC OR TRITON_ENABLE_PERF_ANALYZER)
+   set(protobuf_MODULE_COMPATIBLE TRUE CACHE BOOL "protobuf_MODULE_COMPATIBLE" FORCE)
+-  find_package(Protobuf CONFIG REQUIRED)
++  find_package(Protobuf REQUIRED)
+   message(STATUS "Using protobuf ${Protobuf_VERSION}")
+   include_directories(${Protobuf_INCLUDE_DIRS})
+ endif() # TRITON_ENABLE_CC_GRPC OR TRITON_ENABLE_PERF_ANALYZER
 diff --git a/src/c++/library/CMakeLists.txt b/src/c++/library/CMakeLists.txt
 index 4df5a71..967c0ea 100644
 --- a/src/c++/library/CMakeLists.txt
