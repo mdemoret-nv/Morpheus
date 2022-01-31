@@ -34,7 +34,6 @@
 #include "morpheus/type_utils.hpp"
 
 #include <grpc_client.h>
-#include <http_client.h>
 #include <librdkafka/rdkafkacpp.h>
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
@@ -867,22 +866,10 @@ class InferenceClientStage
 
         tc::Error status = client->IsServerLive(&is_server_live);
 
-        if (!status.IsOk() && this->is_default_grpc_port(server_url))
-        {
-            // We are using the default gRPC port, try the default HTTP
-            std::unique_ptr<tc::InferenceServerGrpcClient> unique_client;
-
-            auto result = tc::InferenceServerGrpcClient::Create(&unique_client, server_url, false);
-
-            client = std::move(unique_client);
-
-            status = client->IsServerLive(&is_server_live);
-
-            if (!status.IsOk())
-                throw std::runtime_error(CONCAT_STR("Unable to connect to Triton at '"
-                                                    << m_server_url
-                                                    << "'. Check the URL and port and ensure the server is running."));
-        }
+        if (!status.IsOk())
+            throw std::runtime_error(CONCAT_STR("Unable to connect to Triton at '"
+                                                << m_server_url
+                                                << "'. Check the URL and port and ensure the server is running."));
 
         // Save this for new clients
         m_server_url = server_url;
