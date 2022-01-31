@@ -694,25 +694,6 @@ def delay(ctx: click.Context, **kwargs):
     return stage
 
 
-@click.command(short_help=("Queue results until the previous stage is complete, then dump entire queue into pipeline. "
-                           "Useful for testing stages independently. Requires finite source such as `from-file`"),
-               **command_kwargs)
-@prepare_command(False)
-def trigger(ctx: click.Context, **kwargs):
-
-    from morpheus.pipeline import LinearPipeline
-
-    p: LinearPipeline = ctx.ensure_object(LinearPipeline)
-
-    from morpheus.pipeline.general_stages import TriggerStage
-
-    stage = TriggerStage(Config.get(), **kwargs)
-
-    p.add_stage(stage)
-
-    return stage
-
-
 @click.command(short_help="Deserialize source data from JSON.", **command_kwargs)
 @prepare_command(False)
 def deserialize(ctx: click.Context, **kwargs):
