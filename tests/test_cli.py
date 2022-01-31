@@ -14,9 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 import os
 import unittest
-import warnings
 
 import click
 from click.testing import CliRunner
@@ -68,6 +68,13 @@ FROM_KAFKA_ARGS = ['from-kafka', '--input_topic', 'test_topic'] + KAFKA_BOOTS
 TO_KAFKA_ARGS = ['to-kafka',  '--output_topic', 'test_topic'] + KAFKA_BOOTS
 
 class TestCli(BaseMorpheusTest):
+    def tearDown(self) -> None:
+        super().tearDown()
+
+        # The instance of the config singleton is passed into the prepare_command decordator on import
+        # since we are resetting the config object we need to reload the cli module
+        importlib.reload(cli)
+
     def _replace_results_callback(self, group, exit_val=47):
         """
         Replaces the results_callback in cli which executes the pipeline.
@@ -83,6 +90,33 @@ class TestCli(BaseMorpheusTest):
             ctx.exit(exit_val)
 
         return callback_values
+
+    def test_help(self):
+        runner = CliRunner()
+        result = runner.invoke(cli.cli, ['--help'])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+        result = runner.invoke(cli.cli, ['tools', '--help'])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+        result = runner.invoke(cli.cli, ['run', '--help'])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+        result = runner.invoke(cli.cli, ['run', 'pipeline-ae', '--help'])
+        self.assertEqual(result.exit_code, 0, result.output)
+
+
+    def test_autocomplete(self):
+        tmp_dir = self._mk_tmp_dir()
+
+        runner = CliRunner()
+        result = runner.invoke(cli.cli, ['tools', 'autocomplete', 'show'], env={'HOME': tmp_dir})
+        self.assertEqual(result.exit_code, 0, result.output)
+
+        # The actual results of this are specific to the implementation of click_completion
+        result = runner.invoke(cli.cli, ['tools', 'autocomplete', 'install', 'bash'], env={'HOME': tmp_dir})
+        self.assertEqual(result.exit_code, 0, result.output)
+
 
     def test_pipeline_ae(self):
         """
@@ -308,7 +342,13 @@ class TestCli(BaseMorpheusTest):
         with open(tmp_model, 'w') as fh:
             pass
 
-        args = GENERAL_ARGS + ['pipeline-fil'] + FILE_SRC_ARGS + FROM_KAFKA_ARGS +\
+        labels_file = os.path.join(tmp_dir, 'labels.txt')
+        with open(labels_file, 'w') as fh:
+            fh.writelines(['frogs\n', 'lizards\n', 'toads'])
+
+        args = GENERAL_ARGS + \
+               ['pipeline-fil', '--labels_file', labels_file] + \
+               FILE_SRC_ARGS + FROM_KAFKA_ARGS +\
                ['deserialize', 'filter',
                 'dropna', '--column', 'xyz',
                 'preprocess', 'add-scores', 'inf-identity',
@@ -326,7 +366,7 @@ class TestCli(BaseMorpheusTest):
         # Ensure our config is populated correctly
         config = Config.get()
         self.assertEqual(config.mode, PipelineModes.FIL)
-        self.assertEqual(config.class_labels, ["mining"])
+        self.assertEqual(config.class_labels, ['frogs', 'lizards', 'toads'])
 
         self.assertIsNone(config.ae)
 
@@ -578,6 +618,22 @@ class TestCli(BaseMorpheusTest):
         self.assertIsInstance(to_kafka, WriteToKafkaStage)
         self.assertEqual(to_kafka._kafka_conf['bootstrap.servers'], 'kserv1:123,kserv2:321')
         self.assertEqual(to_kafka._output_topic, 'test_topic')
+
+
+    def test_pipeline_alias(self):
+        """
+        Verify that pipeline implies pipeline-nlp
+        """
+        args = GENERAL_ARGS + ['pipeline'] + FILE_SRC_ARGS + TO_FILE_ARGS
+        self._replace_results_callback(cli.pipeline_nlp)
+
+        runner = CliRunner()
+        result = runner.invoke(cli.cli, args)
+        self.assertEqual(result.exit_code, 47, result.output)
+
+        # Ensure our config is populated correctly
+        config = Config.get()
+        self.assertEqual(config.mode, PipelineModes.NLP)
 
 
 if __name__ == '__main__':

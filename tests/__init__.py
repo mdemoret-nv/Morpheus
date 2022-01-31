@@ -58,6 +58,7 @@ class BaseMorpheusTest(unittest.TestCase):
         self._mock_triton_servers_dir = MOCK_TRITON_DIR
 
     def tearDown(self) -> None:
+        super().tearDown()
         # reset the config singleton
         Config.reset()
 
