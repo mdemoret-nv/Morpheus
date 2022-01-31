@@ -34,9 +34,12 @@ from morpheus.pipeline.general_stages import AddScoresStage
 from morpheus.pipeline.general_stages import FilterDetectionsStage
 from morpheus.pipeline.general_stages import MonitorStage
 from morpheus.pipeline.inference.inference_ae import AutoEncoderInferenceStage
+from morpheus.pipeline.inference.inference_identity import IdentityInferenceStage
+from morpheus.pipeline.inference.inference_pytorch import PyTorchInferenceStage
 from morpheus.pipeline.inference.inference_triton import TritonInferenceStage
 from morpheus.pipeline.input.from_cloudtrail import CloudTrailSourceStage
 from morpheus.pipeline.input.from_file import FileSourceStage
+from morpheus.pipeline.input.from_kafka import KafkaSourceStage
 from morpheus.pipeline.output.serialize import SerializeStage
 from morpheus.pipeline.output.to_file import WriteToFileStage
 from morpheus.pipeline.output.to_kafka import WriteToKafkaStage
@@ -45,6 +48,7 @@ from morpheus.pipeline.postprocess.timeseries import TimeSeriesStage
 from morpheus.pipeline.preprocess.autoencoder import PreprocessAEStage
 from morpheus.pipeline.preprocess.autoencoder import TrainAEStage
 from morpheus.pipeline.preprocessing import DeserializeStage
+from morpheus.pipeline.preprocessing import DropNullStage
 from morpheus.pipeline.preprocessing import PreprocessFILStage
 from tests import VALIDATION_DATA_DIR
 from tests import BaseMorpheusTest
@@ -298,19 +302,93 @@ class TestCli(BaseMorpheusTest):
         Attempt to add all possible stages to the pipeline_fil, even if the pipeline doesn't
         actually make sense, just test that cli could assemble it
         """
-        args = GENERAL_ARGS + ['pipeline-fil'] + FILE_SRC_ARGS + \
-               ['from_kafka',
-                'deserialize', 'filter',
+        tmp_dir = self._mk_tmp_dir()
+        tmp_model = os.path.join(tmp_dir, 'fake-model.file')
+        with open(tmp_model, 'w') as fh:
+            fh.write(' ')
+
+        args = GENERAL_ARGS + ['pipeline-fil'] + FILE_SRC_ARGS + FROM_KAFKA_ARGS +\
+               ['deserialize', 'filter',
                 'dropna', '--column', 'xyz',
-                'preprocess', 'add-scores'] + \
-               INF_TRITON_ARGS + \
-               MONITOR_ARGS + ['add-class'] + VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS + FROM_KAFKA_ARGS
+                'preprocess', 'add-scores', 'inf-identity',
+                'inf-pytorch', '--model_filename', tmp_model,
+                # 'mflow-drift', <-- Missing dep
+                ] + \
+               INF_TRITON_ARGS + MONITOR_ARGS + ['add-class'] + VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS + TO_KAFKA_ARGS
 
         callback_values = self._replace_results_callback(cli.pipeline_fil)
 
         runner = CliRunner()
         result = runner.invoke(cli.cli, args)
         self.assertEqual(result.exit_code, 47, result.output)
+
+        # Ensure our config is populated correctly
+        config = Config.get()
+        self.assertEqual(config.mode, PipelineModes.FIL)
+        self.assertEqual(config.class_labels, ["mining"])
+
+        self.assertIsNone(config.ae)
+
+        pipe = callback_values['pipe']
+        self.assertIsNotNone(pipe)
+
+        stages = callback_values['stages']
+        # Verify the stages are as we expect them, if there is a size-mismatch python will raise a Value error
+        [file_source, from_kafka, deserialize, filter_stage, dropna, process_fil, add_scores, inf_ident, inf_pytorch,
+         triton_inf, monitor, add_class, validation, serialize, to_file, to_kafka] = stages
+
+        self.assertIsInstance(file_source, FileSourceStage)
+        self.assertEqual(file_source._filename, os.path.join(self._validation_data_dir, 'abp-validation-data.jsonlines'))
+        self.assertFalse(file_source._iterative)
+
+        self.assertIsInstance(from_kafka, KafkaSourceStage)
+        self.assertEqual(from_kafka._consumer_conf['bootstrap.servers'], 'kserv1:123,kserv2:321')
+        self.assertEqual(from_kafka._input_topic, 'test_topic')
+
+        self.assertIsInstance(deserialize, DeserializeStage)
+        self.assertIsInstance(filter_stage, FilterDetectionsStage)
+
+        self.assertIsInstance(dropna, DropNullStage)
+        self.assertEqual(dropna._column, 'xyz')
+
+        self.assertIsInstance(process_fil, PreprocessFILStage)
+
+        self.assertIsInstance(add_scores, AddScoresStage)
+        self.assertIsInstance(inf_ident, IdentityInferenceStage)
+
+        self.assertIsInstance(inf_pytorch, PyTorchInferenceStage)
+        self.assertEqual(inf_pytorch._model_filename, tmp_model)
+
+        self.assertIsInstance(triton_inf, TritonInferenceStage)
+        self.assertEqual(triton_inf._kwargs['model_name'], 'test-model')
+        self.assertEqual(triton_inf._kwargs['server_url'], 'test:123')
+        self.assertTrue(triton_inf._kwargs['force_convert_inputs'])
+
+        self.assertIsInstance(monitor, MonitorStage)
+        self.assertEqual(monitor._description,  'Unittest')
+        self.assertEqual(monitor._smoothing,  0.001)
+        self.assertEqual(monitor._unit, 'inf')
+
+        self.assertIsInstance(add_class, AddClassificationsStage)
+
+        self.assertIsInstance(validation, ValidationStage)
+        self.assertEqual(validation._val_file_name, os.path.join(self._validation_data_dir, 'hammah-role-g-validation-data.csv'))
+        self.assertEqual(validation._results_file_name, 'results.json')
+        self.assertEqual(validation._index_col, '_index_')
+
+        # Click appears to be converting this into a tuple
+        self.assertEqual(list(validation._exclude_columns), ['event_dt'])
+        self.assertEqual(validation._rel_tol, 0.1)
+
+        self.assertIsInstance(serialize, SerializeStage)
+        self.assertEqual(serialize._output_type, 'pandas')
+
+        self.assertIsInstance(to_file, WriteToFileStage)
+        self.assertEqual(to_file._output_file, 'out.csv')
+
+        self.assertIsInstance(to_kafka, WriteToKafkaStage)
+        self.assertEqual(to_kafka._kafka_conf['bootstrap.servers'], 'kserv1:123,kserv2:321')
+        self.assertEqual(to_kafka._output_topic, 'test_topic')
 
 
 if __name__ == '__main__':
