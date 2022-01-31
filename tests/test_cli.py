@@ -50,6 +50,7 @@ from morpheus.pipeline.preprocess.autoencoder import TrainAEStage
 from morpheus.pipeline.preprocessing import DeserializeStage
 from morpheus.pipeline.preprocessing import DropNullStage
 from morpheus.pipeline.preprocessing import PreprocessFILStage
+from morpheus.pipeline.preprocessing import PreprocessNLPStage
 from tests import VALIDATION_DATA_DIR
 from tests import BaseMorpheusTest
 
@@ -305,7 +306,7 @@ class TestCli(BaseMorpheusTest):
         tmp_dir = self._mk_tmp_dir()
         tmp_model = os.path.join(tmp_dir, 'fake-model.file')
         with open(tmp_model, 'w') as fh:
-            fh.write(' ')
+            pass
 
         args = GENERAL_ARGS + ['pipeline-fil'] + FILE_SRC_ARGS + FROM_KAFKA_ARGS +\
                ['deserialize', 'filter',
@@ -370,6 +371,194 @@ class TestCli(BaseMorpheusTest):
         self.assertEqual(monitor._unit, 'inf')
 
         self.assertIsInstance(add_class, AddClassificationsStage)
+
+        self.assertIsInstance(validation, ValidationStage)
+        self.assertEqual(validation._val_file_name, os.path.join(self._validation_data_dir, 'hammah-role-g-validation-data.csv'))
+        self.assertEqual(validation._results_file_name, 'results.json')
+        self.assertEqual(validation._index_col, '_index_')
+
+        # Click appears to be converting this into a tuple
+        self.assertEqual(list(validation._exclude_columns), ['event_dt'])
+        self.assertEqual(validation._rel_tol, 0.1)
+
+        self.assertIsInstance(serialize, SerializeStage)
+        self.assertEqual(serialize._output_type, 'pandas')
+
+        self.assertIsInstance(to_file, WriteToFileStage)
+        self.assertEqual(to_file._output_file, 'out.csv')
+
+        self.assertIsInstance(to_kafka, WriteToKafkaStage)
+        self.assertEqual(to_kafka._kafka_conf['bootstrap.servers'], 'kserv1:123,kserv2:321')
+        self.assertEqual(to_kafka._output_topic, 'test_topic')
+
+
+    def test_pipeline_nlp(self):
+        """
+        Build a pipeline roughly ressembles the phishing validation script
+        """
+        labels_file = os.path.join(self._data_dir, 'labels_phishing.txt')
+        vocab_file_name = os.path.join(self._data_dir, 'bert-base-uncased-hash.txt')
+        args = GENERAL_ARGS + \
+               ['pipeline-nlp', '--model_seq_length=128', '--labels_file', labels_file] + \
+               FILE_SRC_ARGS +  \
+               ['deserialize',
+                'preprocess', '--vocab_hash_file', vocab_file_name, '--truncation=True',
+                '--do_lower_case=True', '--add_special_tokens=False'] + \
+               INF_TRITON_ARGS + MONITOR_ARGS + \
+               ['add-class', '--label=pred', '--threshold=0.7'] + \
+               VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS
+
+        callback_values = self._replace_results_callback(cli.pipeline_nlp)
+
+        runner = CliRunner()
+        result = runner.invoke(cli.cli, args)
+        self.assertEqual(result.exit_code, 47, result.output)
+
+        # Ensure our config is populated correctly
+        config = Config.get()
+        self.assertEqual(config.mode, PipelineModes.NLP)
+        self.assertEqual(config.class_labels, ["score", "pred"])
+        self.assertEqual(config.feature_length, 128)
+
+        self.assertIsNone(config.ae)
+
+        pipe = callback_values['pipe']
+        self.assertIsNotNone(pipe)
+
+        stages = callback_values['stages']
+        # Verify the stages are as we expect them, if there is a size-mismatch python will raise a Value error
+        [file_source, deserialize, process_nlp, triton_inf, monitor, add_class, validation, serialize, to_file] = stages
+
+        self.assertIsInstance(file_source, FileSourceStage)
+        self.assertEqual(file_source._filename, os.path.join(self._validation_data_dir, 'abp-validation-data.jsonlines'))
+        self.assertFalse(file_source._iterative)
+
+        self.assertIsInstance(deserialize, DeserializeStage)
+
+        self.assertIsInstance(process_nlp, PreprocessNLPStage)
+        self.assertEqual(process_nlp._vocab_hash_file, vocab_file_name)
+        self.assertTrue(process_nlp._truncation)
+        self.assertTrue(process_nlp._do_lower_case)
+        self.assertFalse(process_nlp._add_special_tokens)
+
+        self.assertIsInstance(triton_inf, TritonInferenceStage)
+        self.assertEqual(triton_inf._kwargs['model_name'], 'test-model')
+        self.assertEqual(triton_inf._kwargs['server_url'], 'test:123')
+        self.assertTrue(triton_inf._kwargs['force_convert_inputs'])
+
+        self.assertIsInstance(monitor, MonitorStage)
+        self.assertEqual(monitor._description,  'Unittest')
+        self.assertEqual(monitor._smoothing,  0.001)
+        self.assertEqual(monitor._unit, 'inf')
+
+        self.assertIsInstance(add_class, AddClassificationsStage)
+        self.assertEqual(add_class._labels, ['pred'])
+        self.assertEqual(add_class._threshold, 0.7)
+
+        self.assertIsInstance(validation, ValidationStage)
+        self.assertEqual(validation._val_file_name, os.path.join(self._validation_data_dir, 'hammah-role-g-validation-data.csv'))
+        self.assertEqual(validation._results_file_name, 'results.json')
+        self.assertEqual(validation._index_col, '_index_')
+
+        # Click appears to be converting this into a tuple
+        self.assertEqual(list(validation._exclude_columns), ['event_dt'])
+        self.assertEqual(validation._rel_tol, 0.1)
+
+        self.assertIsInstance(serialize, SerializeStage)
+        self.assertEqual(serialize._output_type, 'pandas')
+
+        self.assertIsInstance(to_file, WriteToFileStage)
+        self.assertEqual(to_file._output_file, 'out.csv')
+
+
+    def test_pipeline_nlp_all(self):
+        """
+        Attempt to add all possible stages to the pipeline_nlp, even if the pipeline doesn't
+        actually make sense, just test that cli could assemble it
+        """
+        tmp_dir = self._mk_tmp_dir()
+        tmp_model = os.path.join(tmp_dir, 'fake-model.file')
+        with open(tmp_model, 'w') as fh:
+            pass
+
+        labels_file = os.path.join(self._data_dir, 'labels_phishing.txt')
+        vocab_file_name = os.path.join(self._data_dir, 'bert-base-uncased-hash.txt')
+        args = GENERAL_ARGS + \
+               ['pipeline-nlp', '--model_seq_length=128', '--labels_file', labels_file] + \
+               FILE_SRC_ARGS + FROM_KAFKA_ARGS +  \
+               ['deserialize', 'filter',
+                'dropna', '--column', 'xyz',
+                'preprocess', '--vocab_hash_file', vocab_file_name, '--truncation=True',
+                '--do_lower_case=True', '--add_special_tokens=False',
+                'add-scores', 'inf-identity',
+                'inf-pytorch', '--model_filename', tmp_model,
+                # 'mflow-drift', <-- Missing dep
+                ] + \
+               INF_TRITON_ARGS + MONITOR_ARGS + \
+               ['add-class', '--label=pred', '--threshold=0.7'] + \
+               VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS + TO_KAFKA_ARGS
+
+        callback_values = self._replace_results_callback(cli.pipeline_nlp)
+
+        runner = CliRunner()
+        result = runner.invoke(cli.cli, args)
+        self.assertEqual(result.exit_code, 47, result.output)
+
+        # Ensure our config is populated correctly
+        config = Config.get()
+        self.assertEqual(config.mode, PipelineModes.NLP)
+        self.assertEqual(config.class_labels, ["score", "pred"])
+        self.assertEqual(config.feature_length, 128)
+
+        self.assertIsNone(config.ae)
+
+        pipe = callback_values['pipe']
+        self.assertIsNotNone(pipe)
+
+        stages = callback_values['stages']
+        # Verify the stages are as we expect them, if there is a size-mismatch python will raise a Value error
+        [file_source, from_kafka, deserialize, filter_stage, dropna, process_nlp, add_scores, inf_ident, inf_pytorch,
+         triton_inf, monitor, add_class, validation, serialize, to_file, to_kafka] = stages
+
+        self.assertIsInstance(file_source, FileSourceStage)
+        self.assertEqual(file_source._filename, os.path.join(self._validation_data_dir, 'abp-validation-data.jsonlines'))
+        self.assertFalse(file_source._iterative)
+
+        self.assertIsInstance(from_kafka, KafkaSourceStage)
+        self.assertEqual(from_kafka._consumer_conf['bootstrap.servers'], 'kserv1:123,kserv2:321')
+        self.assertEqual(from_kafka._input_topic, 'test_topic')
+
+        self.assertIsInstance(deserialize, DeserializeStage)
+        self.assertIsInstance(filter_stage, FilterDetectionsStage)
+
+        self.assertIsInstance(dropna, DropNullStage)
+        self.assertEqual(dropna._column, 'xyz')
+
+        self.assertIsInstance(process_nlp, PreprocessNLPStage)
+        self.assertEqual(process_nlp._vocab_hash_file, vocab_file_name)
+        self.assertTrue(process_nlp._truncation)
+        self.assertTrue(process_nlp._do_lower_case)
+        self.assertFalse(process_nlp._add_special_tokens)
+
+        self.assertIsInstance(add_scores, AddScoresStage)
+        self.assertIsInstance(inf_ident, IdentityInferenceStage)
+
+        self.assertIsInstance(inf_pytorch, PyTorchInferenceStage)
+        self.assertEqual(inf_pytorch._model_filename, tmp_model)
+
+        self.assertIsInstance(triton_inf, TritonInferenceStage)
+        self.assertEqual(triton_inf._kwargs['model_name'], 'test-model')
+        self.assertEqual(triton_inf._kwargs['server_url'], 'test:123')
+        self.assertTrue(triton_inf._kwargs['force_convert_inputs'])
+
+        self.assertIsInstance(monitor, MonitorStage)
+        self.assertEqual(monitor._description,  'Unittest')
+        self.assertEqual(monitor._smoothing,  0.001)
+        self.assertEqual(monitor._unit, 'inf')
+
+        self.assertIsInstance(add_class, AddClassificationsStage)
+        self.assertEqual(add_class._labels, ['pred'])
+        self.assertEqual(add_class._threshold, 0.7)
 
         self.assertIsInstance(validation, ValidationStage)
         self.assertEqual(validation._val_file_name, os.path.join(self._validation_data_dir, 'hammah-role-g-validation-data.csv'))
