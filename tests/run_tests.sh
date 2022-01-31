@@ -19,12 +19,15 @@
 # pytest
 TEST_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-pytest ${TEST_DIR}/test_cli.py ${TEST_DIR}/test_config.py ${TEST_DIR}/test_package.py
-pytest ${TEST_DIR}/test_abp.py::TestABP::test_abp_no_cpp
-pytest ${TEST_DIR}/test_abp.py::TestABP::test_abp_cpp
-pytest ${TEST_DIR}/test_hammah.py::TestHammah::test_hammah_roleg
-pytest ${TEST_DIR}/test_hammah.py::TestHammah::test_hammah_user123
-pytest ${TEST_DIR}/test_phishing.py::TestPhishing::test_email_no_cpp
-pytest ${TEST_DIR}/test_phishing.py::TestPhishing::test_email_cpp
-pytest ${TEST_DIR}/test_sid.py::TestSid::test_minibert_no_cpp
-pytest ${TEST_DIR}/test_sid.py::TestSid::test_minibert_cpp
+pytest --cov=morpheus ${TEST_DIR}/test_cli.py ${TEST_DIR}/test_config.py ${TEST_DIR}/test_package.py
+
+if [ -z ${MORPHEUS_SKIP_SLOW_TESTS} ]; then
+    pytest ${TEST_DIR}/test_abp.py::TestABP::test_abp_no_cpp
+    pytest ${TEST_DIR}/test_abp.py::TestABP::test_abp_cpp
+    pytest ${TEST_DIR}/test_hammah.py::TestHammah::test_hammah_roleg
+    pytest ${TEST_DIR}/test_hammah.py::TestHammah::test_hammah_user123
+    pytest ${TEST_DIR}/test_phishing.py::TestPhishing::test_email_no_cpp
+    pytest ${TEST_DIR}/test_phishing.py::TestPhishing::test_email_cpp
+    pytest ${TEST_DIR}/test_sid.py::TestSid::test_minibert_no_cpp
+    pytest ${TEST_DIR}/test_sid.py::TestSid::test_minibert_cpp
+fi

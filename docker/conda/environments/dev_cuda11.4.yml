@@ -40,6 +40,7 @@ dependencies:
 - pip
 - pydot
 - pytest
+- pytest-cov
 - python-graphviz
 - python=3.8
 - rapidjson
