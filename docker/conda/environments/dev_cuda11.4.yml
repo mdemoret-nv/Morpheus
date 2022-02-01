@@ -32,6 +32,7 @@ dependencies:
 - flatbuffers=2.0
 - gflags=2.2
 - grpc-cpp
+- mlflow=1.23.1
 - ninja
 - nlohmann_json=3.10
 - nodejs=17
