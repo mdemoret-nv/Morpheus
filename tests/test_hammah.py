@@ -27,7 +27,7 @@ class TestHammah(BaseMorpheusTest):
     """
     End-to-end test intended to imitate the hammah validation test
     """
-    @unittest.skipIf(os.environ.get("MORPHEUS_SKIP_SLOW_TESTS") is not None, "MORPHEUS_SKIP_SLOW_TESTS is defined")
+    @unittest.skipIf(os.environ.get("MORPHEUS_RUN_SLOW_TESTS") is None, "MORPHEUS_RUN_SLOW_TESTS is not defined")
     def test_hammah_roleg(self):
         config = Config.get()
         config.mode = PipelineModes.AE
@@ -94,7 +94,7 @@ class TestHammah(BaseMorpheusTest):
         results = self._calc_error_val(results_file_name)
         self.assertLess(results.error_pct, 1)
 
-    @unittest.skipIf(os.environ.get("MORPHEUS_SKIP_SLOW_TESTS") is not None, "MORPHEUS_SKIP_SLOW_TESTS is defined")
+    @unittest.skipIf(os.environ.get("MORPHEUS_RUN_SLOW_TESTS") is None, "MORPHEUS_RUN_SLOW_TESTS is not defined")
     def test_hammah_user123(self):
         config = Config.get()
         config.mode = PipelineModes.AE
