@@ -19,7 +19,13 @@
 # pytest
 TEST_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-pytest --cov=morpheus ${TEST_DIR}/test_add_class.py ${TEST_DIR}/test_cli.py ${TEST_DIR}/test_config.py ${TEST_DIR}/test_package.py
+pytest --cov=morpheus \
+    ${TEST_DIR}/test_add_classifications_stage.py \
+    ${TEST_DIR}/test_cli.py \
+    ${TEST_DIR}/test_config.py \
+    ${TEST_DIR}/test_filter_detections_stage.py \
+    ${TEST_DIR}/test_monitor_stage.py \
+    ${TEST_DIR}/test_package.py
 
 if [ -n "${MORPHEUS_RUN_SLOW_TESTS}" ]; then
     pytest ${TEST_DIR}/test_abp.py::TestABP::test_abp_no_cpp
