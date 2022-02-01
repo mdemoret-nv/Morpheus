@@ -44,6 +44,7 @@ from morpheus.pipeline.output.serialize import SerializeStage
 from morpheus.pipeline.output.to_file import WriteToFileStage
 from morpheus.pipeline.output.to_kafka import WriteToKafkaStage
 from morpheus.pipeline.output.validation import ValidationStage
+from morpheus.pipeline.postprocess.mlflow_drift import MLFlowDriftStage
 from morpheus.pipeline.postprocess.timeseries import TimeSeriesStage
 from morpheus.pipeline.preprocess.autoencoder import PreprocessAEStage
 from morpheus.pipeline.preprocess.autoencoder import TrainAEStage
@@ -346,6 +347,7 @@ class TestCli(BaseMorpheusTest):
         with open(labels_file, 'w') as fh:
             fh.writelines(['frogs\n', 'lizards\n', 'toads'])
 
+        mlflow_uri = self._get_mlflow_uri()
         args = GENERAL_ARGS + \
                ['pipeline-fil', '--labels_file', labels_file] + \
                FILE_SRC_ARGS + FROM_KAFKA_ARGS +\
@@ -353,8 +355,7 @@ class TestCli(BaseMorpheusTest):
                 'dropna', '--column', 'xyz',
                 'preprocess', 'add-scores', 'inf-identity',
                 'inf-pytorch', '--model_filename', tmp_model,
-                # 'mflow-drift', <-- Missing dep
-                ] + \
+                'mlflow-drift', '--tracking_uri', mlflow_uri] + \
                INF_TRITON_ARGS + MONITOR_ARGS + ['add-class'] + VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS + TO_KAFKA_ARGS
 
         callback_values = self._replace_results_callback(cli.pipeline_fil)
@@ -376,7 +377,7 @@ class TestCli(BaseMorpheusTest):
         stages = callback_values['stages']
         # Verify the stages are as we expect them, if there is a size-mismatch python will raise a Value error
         [file_source, from_kafka, deserialize, filter_stage, dropna, process_fil, add_scores, inf_ident, inf_pytorch,
-         triton_inf, monitor, add_class, validation, serialize, to_file, to_kafka] = stages
+         mlflow_drift, triton_inf, monitor, add_class, validation, serialize, to_file, to_kafka] = stages
 
         self.assertIsInstance(file_source, FileSourceStage)
         self.assertEqual(file_source._filename, os.path.join(self._validation_data_dir, 'abp-validation-data.jsonlines'))
@@ -399,6 +400,9 @@ class TestCli(BaseMorpheusTest):
 
         self.assertIsInstance(inf_pytorch, PyTorchInferenceStage)
         self.assertEqual(inf_pytorch._model_filename, tmp_model)
+
+        self.assertIsInstance(mlflow_drift, MLFlowDriftStage)
+        self.assertEqual(mlflow_drift._tracking_uri, mlflow_uri)
 
         self.assertIsInstance(triton_inf, TritonInferenceStage)
         self.assertEqual(triton_inf._kwargs['model_name'], 'test-model')
@@ -516,6 +520,7 @@ class TestCli(BaseMorpheusTest):
         Attempt to add all possible stages to the pipeline_nlp, even if the pipeline doesn't
         actually make sense, just test that cli could assemble it
         """
+        mlflow_uri = self._get_mlflow_uri()
         tmp_dir = self._mk_tmp_dir()
         tmp_model = os.path.join(tmp_dir, 'fake-model.file')
         with open(tmp_model, 'w') as fh:
@@ -532,8 +537,7 @@ class TestCli(BaseMorpheusTest):
                 '--do_lower_case=True', '--add_special_tokens=False',
                 'add-scores', 'inf-identity',
                 'inf-pytorch', '--model_filename', tmp_model,
-                # 'mflow-drift', <-- Missing dep
-                ] + \
+                'mlflow-drift', '--tracking_uri', mlflow_uri] + \
                INF_TRITON_ARGS + MONITOR_ARGS + \
                ['add-class', '--label=pred', '--threshold=0.7'] + \
                VALIDATE_ARGS + ['serialize'] + TO_FILE_ARGS + TO_KAFKA_ARGS
@@ -558,7 +562,7 @@ class TestCli(BaseMorpheusTest):
         stages = callback_values['stages']
         # Verify the stages are as we expect them, if there is a size-mismatch python will raise a Value error
         [file_source, from_kafka, deserialize, filter_stage, dropna, process_nlp, add_scores, inf_ident, inf_pytorch,
-         triton_inf, monitor, add_class, validation, serialize, to_file, to_kafka] = stages
+         mlflow_drift, triton_inf, monitor, add_class, validation, serialize, to_file, to_kafka] = stages
 
         self.assertIsInstance(file_source, FileSourceStage)
         self.assertEqual(file_source._filename, os.path.join(self._validation_data_dir, 'abp-validation-data.jsonlines'))
@@ -585,6 +589,9 @@ class TestCli(BaseMorpheusTest):
 
         self.assertIsInstance(inf_pytorch, PyTorchInferenceStage)
         self.assertEqual(inf_pytorch._model_filename, tmp_model)
+
+        self.assertIsInstance(mlflow_drift, MLFlowDriftStage)
+        self.assertEqual(mlflow_drift._tracking_uri, mlflow_uri)
 
         self.assertIsInstance(triton_inf, TritonInferenceStage)
         self.assertEqual(triton_inf._kwargs['model_name'], 'test-model')

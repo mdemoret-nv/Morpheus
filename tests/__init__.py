@@ -24,8 +24,10 @@ import tempfile
 import time
 import unittest
 
+import mlflow
 import numpy as np
 import requests
+from mlflow.tracking import fluent
 
 from morpheus.config import Config
 
@@ -158,3 +160,23 @@ class BaseMorpheusTest(unittest.TestCase):
             if timeout > 0:
                 if not self._wait_for_camouflage(timeout=timeout):
                     raise RuntimeError("Failed to launch camouflage server")
+
+    def _shutdown_mlflow(self):
+        """
+        Shutdown all of the active mlflow runs prior to the tmp_dir being deleted
+        """
+        num_runs = len(fluent._active_run_stack)
+        for _ in range(num_runs):
+            mlflow.end_run()
+
+    def _get_mlflow_uri(self, experiment_name="Morpheus"):
+        tmp_dir = self._mk_tmp_dir()
+        uri = "file://{}".format(tmp_dir)
+        mlflow.set_tracking_uri(uri)
+        mlflow.create_experiment(experiment_name)
+        experiment = mlflow.get_experiment_by_name(experiment_name)
+        with mlflow.start_run(run_name="Model Drift", tags={"morpheus.type": "drift"}, experiment_id=experiment.experiment_id):
+            pass
+
+        self.addCleanup(self._shutdown_mlflow)
+        return uri
