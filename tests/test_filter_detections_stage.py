@@ -36,7 +36,7 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
     def test_constructor(self):
         config = Config.get()
 
-        fds = TestFilterDetectionsStage(config)
+        fds = FilterDetectionsStage(config)
         self.assertEqual(fds.name, "filter")
 
         # Just ensure that we get a valid non-empty tuple
@@ -44,26 +44,67 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         self.assertIsInstance(accepted_types, tuple)
         self.assertGreater(len(accepted_types), 0)
 
-        fds = TestFilterDetectionsStage(config, threshold=0.2)
+        fds = FilterDetectionsStage(config, threshold=0.2)
         self.assertEqual(fds._threshold, 0.2)
 
 
     def test_filter(self):
-        mock_message = mock.MagicMock()
-        mock_message.probs = cp.array([[0.1, 0.5, 0.3], [0.2, 0.6, 0.9]])
-
         config = Config.get()
-        fds = TestFilterDetectionsStage(config)
+        fds = FilterDetectionsStage(config, threshold=0.5)
 
-        mock_message.set_meta.assert_has_calls([
-            mock.call('frogs', [False, False]),
-            mock.call('lizards', [False, True]),
-            mock.call('toads', [True, True]),
+        mock_message = mock.MagicMock()
+        mock_message.mess_offset = 8
+        mock_message.probs = cp.array([[0.1, 0.5, 0.3], [0.2, 0.3, 0.4]])
+
+        # All values are below the threshold
+        self.assertEqual(fds.filter(mock_message), [])
+
+        # Only one row has a value above the threshold
+        mock_message.probs = cp.array([
+            [0.2, 0.4, 0.3],
+            [0.1, 0.5, 0.8],
+            [0.2, 0.4, 0.3],
         ])
 
-        wrong_shape = mock.MagicMock()
-        wrong_shape.probs = cp.array([[0.1, 0.5], [0.2, 0.6]])
-        #self.assertRaises(RuntimeError, ac._add_labels, wrong_shape)
+        output_list = fds.filter(mock_message)
+        self.assertEqual(len(output_list), 1)
+        self.assertEqual(output_list[0].offset, 1)
+        self.assertEqual(output_list[0].mess_offset, 9)
+        self.assertEqual(output_list[0].mess_count, 1)
+
+        # Two adjacent rows have a value above the threashold
+        mock_message.probs = cp.array([
+            [0.2, 0.4, 0.3],
+            [0.1, 0.2, 0.3],
+            [0.1, 0.5, 0.8],
+            [0.1, 0.9, 0.2],
+            [0.2, 0.4, 0.3],
+        ])
+
+        output_list = fds.filter(mock_message)
+        self.assertEqual(len(output_list), 1)
+        self.assertEqual(output_list[0].offset, 2)
+        self.assertEqual(output_list[0].mess_offset, 10)
+        self.assertEqual(output_list[0].mess_count, 2)
+
+        # Two non-adjacent rows have a value above the threashold
+        mock_message.probs = cp.array([
+            [0.2, 0.4, 0.3],
+            [0.1, 0.2, 0.3],
+            [0.1, 0.5, 0.8],
+            [0.4, 0.3, 0.2],
+            [0.1, 0.9, 0.2],
+            [0.2, 0.4, 0.3],
+        ])
+        output_list = fds.filter(mock_message)
+        self.assertEqual(len(output_list), 2)
+        self.assertEqual(output_list[0].offset, 2)
+        self.assertEqual(output_list[0].mess_offset, 10)
+        self.assertEqual(output_list[0].mess_count, 1)
+
+        self.assertEqual(output_list[1].offset, 4)
+        self.assertEqual(output_list[1].mess_offset, 12)
+        self.assertEqual(output_list[1].mess_count, 1)
 
     def test_build_single(self):
         mock_stream = mock.MagicMock()
@@ -72,7 +113,7 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         mock_input = mock.MagicMock()
 
         config = Config.get()
-        fds = TestFilterDetectionsStage(config)
+        fds = FilterDetectionsStage(config)
         fds._build_single(mock_segment, mock_input)
 
         mock_segment.make_node_full.assert_called_once()
