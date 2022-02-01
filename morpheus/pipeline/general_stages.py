@@ -558,7 +558,7 @@ class AddScoresStage(SinglePortStage):
 
     @property
     def name(self) -> str:
-        return "add-class"
+        return "add-scores"
 
     def accepted_types(self) -> typing.Tuple:
         """
