@@ -42,6 +42,11 @@ class TestAddClass(BaseMorpheusTest):
         self.assertEqual(ac._idx2label, {0: 'frogs', 1: 'lizards', 2: 'toads'})
         self.assertEqual(ac.name, "add-class")
 
+        # Just ensure that we get a valid non-empty tuple
+        accepted_types = ac.accepted_types()
+        self.assertIsInstance(accepted_types, tuple)
+        self.assertGreater(len(accepted_types), 0)
+
         ac = AddClassificationsStage(config, threshold=1.3, labels=['lizards'], prefix='test_')
         self.assertEqual(ac._class_labels, ['frogs', 'lizards', 'toads'])
         self.assertEqual(ac._labels, ['lizards'])
