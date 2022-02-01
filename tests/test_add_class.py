@@ -24,11 +24,7 @@ from morpheus.config import Config
 
 Config.get().use_cpp = False
 
-from morpheus.config import ConfigAutoEncoder
-from morpheus.config import PipelineModes
-from morpheus.pipeline import LinearPipeline
 from morpheus.pipeline.general_stages import AddClassificationsStage
-from morpheus.pipeline.messages import MultiResponseProbsMessage
 from tests import BaseMorpheusTest
 
 
@@ -38,8 +34,6 @@ class TestAddClass(BaseMorpheusTest):
     """
     def test_constructor(self):
         config = Config.get()
-        config.mode = PipelineModes.FIL
-        config.use_cpp = False
         config.class_labels = ['frogs', 'lizards', 'toads']
 
         ac = AddClassificationsStage(config)
@@ -60,8 +54,6 @@ class TestAddClass(BaseMorpheusTest):
         mock_message.probs = cp.array([[0.1, 0.5, 0.8], [0.2, 0.6, 0.9]])
 
         config = Config.get()
-        config.mode = PipelineModes.FIL
-        config.use_cpp = False
         config.class_labels = ['frogs', 'lizards', 'toads']
 
         ac = AddClassificationsStage(config, threshold=0.5)
@@ -84,8 +76,6 @@ class TestAddClass(BaseMorpheusTest):
         mock_input = mock.MagicMock()
 
         config = Config.get()
-        config.mode = PipelineModes.FIL
-        config.use_cpp = False
         config.class_labels = ['frogs', 'lizards', 'toads']
 
         ac = AddClassificationsStage(config)
