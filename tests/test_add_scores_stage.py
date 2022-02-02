@@ -29,9 +29,6 @@ from tests import BaseMorpheusTest
 
 
 class TestAddScoresStage(BaseMorpheusTest):
-    """
-    End-to-end test intended to imitate the hammah validation test
-    """
     def test_constructor(self):
         config = Config.get()
         config.class_labels = ['frogs', 'lizards', 'toads']

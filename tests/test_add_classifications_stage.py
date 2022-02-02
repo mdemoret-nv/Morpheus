@@ -28,10 +28,7 @@ from morpheus.pipeline.general_stages import AddClassificationsStage
 from tests import BaseMorpheusTest
 
 
-class TestAddClass(BaseMorpheusTest):
-    """
-    End-to-end test intended to imitate the hammah validation test
-    """
+class TestAddClassificationsStage(BaseMorpheusTest):
     def test_constructor(self):
         config = Config.get()
         config.class_labels = ['frogs', 'lizards', 'toads']
