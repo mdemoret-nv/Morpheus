@@ -32,7 +32,7 @@ MODEL_MAX_BATCH_SIZE = 32
 
 class TestPhishing(BaseMorpheusTest):
     """
-    End-to-end test intended to imitate the ABP validation test
+    End-to-end test intended to imitate the Phishing validation test
     """
     @mock.patch('tritonclient.grpc.InferenceServerClient')
     def test_email_no_cpp(self, mock_triton_client):

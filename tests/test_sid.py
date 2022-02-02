@@ -32,7 +32,7 @@ MODEL_MAX_BATCH_SIZE = 32
 
 class TestSid(BaseMorpheusTest):
     """
-    End-to-end test intended to imitate the ABP validation test
+    End-to-end test intended to imitate the Sid validation test
     """
     @mock.patch('tritonclient.grpc.InferenceServerClient')
     def test_minibert_no_cpp(self, mock_triton_client):
