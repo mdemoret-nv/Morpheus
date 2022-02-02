@@ -25,6 +25,7 @@ pytest --cov=morpheus \
     ${TEST_DIR}/test_cli.py \
     ${TEST_DIR}/test_config.py \
     ${TEST_DIR}/test_filter_detections_stage.py \
+    ${TEST_DIR}/test_inference_worker.py \
     ${TEST_DIR}/test_monitor_stage.py \
     ${TEST_DIR}/test_package.py \
     ${TEST_DIR}/test_trigger_stage.py
