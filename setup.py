@@ -46,7 +46,7 @@ setup(
         "Programming Language :: Python :: 3 :: Only",
     ],
     author="NVIDIA Corporation",
-    packages=find_packages(include=["morpheus", "morpheus.*"]),
+    packages=find_packages(include=["morpheus", "morpheus.*"], exclude=['tests']),
     package_data={"": ["*.so"]},
     include_package_data=True,
     install_requires=[

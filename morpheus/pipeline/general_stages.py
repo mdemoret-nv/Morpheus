@@ -169,7 +169,7 @@ class MonitorStage(SinglePortStage):
         Pipeline configuration instance
     description : str
         Name to show for this Monitor Stage in the console window
-    smoothing : int
+    smoothing : float
         Smoothing parameter to determine how much the throughput should be averaged. 0 = Instantaneous, 1 =
         Average.
     unit : str
@@ -182,7 +182,7 @@ class MonitorStage(SinglePortStage):
     def __init__(self,
                  c: Config,
                  description: str = "Progress",
-                 smoothing: int = 0.05,
+                 smoothing: float = 0.05,
                  unit="messages",
                  determine_count_fn: typing.Callable[[typing.Any], int] = None):
         super().__init__(c)
@@ -558,7 +558,7 @@ class AddScoresStage(SinglePortStage):
 
     @property
     def name(self) -> str:
-        return "add-class"
+        return "add-scores"
 
     def accepted_types(self) -> typing.Tuple:
         """

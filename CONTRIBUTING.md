@@ -150,7 +150,11 @@ Note: These instructions assume the user is using `mamba` instead of `conda` sin
    pip install -e /workspace
    ```
    Once Morpheus has been built, it can be installed into the current virtual environment.
-7. Run Morpheus
+7. Install camouflage, needed for the unittests
+   ```bash
+   npm install -g camouflage-server
+   ```
+8. Run Morpheus
    ```bash
    morpheus run pipeline-nlp ...
    ```

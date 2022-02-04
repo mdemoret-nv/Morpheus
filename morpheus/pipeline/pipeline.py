@@ -1109,6 +1109,7 @@ class Pipeline():
             # Shutdown the async generator sources and exit
             loop.shutdown_asyncgens()
             loop.close()
+            asyncio.set_event_loop(asyncio.new_event_loop())
             logger.info("====Pipeline Complete====")
 
 
