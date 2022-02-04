@@ -48,6 +48,10 @@ class TestInferenceWorker(BaseMorpheusTest):
         self.assertIs(iw._inf_queue, pq)
         self.assertIs(iw._complete_event, mock_event)
 
+        # Call empty methods
+        iw.init()
+        iw.stop()
+
     @mock.patch("asyncio.Event.wait")
     @mock.patch('threading.Thread')
     def test_start(self, mock_thread, mock_event_wait):
@@ -182,10 +186,12 @@ class TestInferenceWorker(BaseMorpheusTest):
         mock_current_loop.asyncio_loop = mock_asyncio_loop
         mock_ioloop.current.return_value = mock_current_loop
 
+        mock_process = mock.MagicMock()
         class TestIW(inference_stage.InferenceWorker):
-            pass
-
-        TestIW.process = mock.MagicMock()
+            def process(self, batch, cb):
+                # intentionally calling empty abc method for coverage
+                super().process(batch, cb)
+                mock_process(batch, cb)
 
         # Allow for three iterations of the main loop, with the third raising a closed exception on the call to get
         mock_queue = mock.MagicMock()
@@ -225,7 +231,7 @@ class TestInferenceWorker(BaseMorpheusTest):
         fut1.add_done_callback.assert_called_once()
         fut2.add_done_callback.assert_called_once()
 
-        process_calls = TestIW.process.call_args_list
+        process_calls = mock_process.call_args_list
         self.assertEqual(len(process_calls), 2)
         self.assertEqual(process_calls[0], mock.call(batch1, fut1))
         self.assertEqual(process_calls[1], mock.call(batch2, fut2))

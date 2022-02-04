@@ -19,7 +19,7 @@
 # pytest
 TEST_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
-pytest --cov=morpheus \
+pytest --cov=morpheus --cov-report term-missing  \
     ${TEST_DIR}/test_add_classifications_stage.py \
     ${TEST_DIR}/test_add_scores_stage.py \
     ${TEST_DIR}/test_cli.py \

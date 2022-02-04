@@ -34,11 +34,15 @@ from tests import BaseMorpheusTest
 
 class TestIW(inference_stage.InferenceWorker):
     def calc_output_dims(self, _):
+        # Intentionally calling the abc empty method for coverage
+        super().calc_output_dims(_)
         return (1, 2)
 
 class InferenceStage(inference_stage.InferenceStage):
     # Subclass InferenceStage to implement the abstract methods
     def _get_inference_worker(self, pq):
+        # Intentionally calling the abc empty method for coverage
+        super()._get_inference_worker(pq)
         return TestIW(pq)
 
 
@@ -190,17 +194,13 @@ class TestInferenceStage(BaseMorpheusTest):
         self.assertRaises(NotImplementedError, inf_stage._build_single, mock_segment, mock_input_stream)
 
     def test_start(self):
-        mock_start = mock.MagicMock()
         config = Config.get()
         inf_stage = InferenceStage(config)
-
-        inf_stage._start = mock_start
 
         self.assertRaises(AssertionError, inf_stage.start)
 
         inf_stage._is_built = True
         inf_stage.start()
-        mock_start.assert_called_once()
 
     def test_stop(self):
         mock_workers = [mock.MagicMock() for _ in range(5)]
@@ -224,6 +224,37 @@ class TestInferenceStage(BaseMorpheusTest):
         for w in mock_workers:
             w.join.assert_awaited_once()
 
+    def test_split_batches(self):
+        seq_ids = cp.zeros((10, 1))
+        seq_ids[2][0] = 15
+        seq_ids[6][0] = 16
+
+        mock_message = mock.MagicMock()
+        mock_message.get_input.return_value = seq_ids
+
+        out_resp = InferenceStage._split_batches(mock_message, 5)
+        self.assertEqual(len(out_resp), 3)
+
+        self.assertEqual(mock_message.get_slice.call_count, 3)
+        mock_message.get_slice.assert_has_calls([
+            mock.call(0, 3),
+            mock.call(3, 7),
+            mock.call(7, 10)
+        ])
+
+    @mock.patch('asyncio.gather')
+    @mock.patch('asyncio.get_running_loop')
+    def test_queue_inf_work(self, mock_get_running_loop, mock_gather):
+        mock_loop = mock_get_running_loop.return_value
+
+        config = Config.get()
+        inf_stage = InferenceStage(config)
+        inf_stage._queue_inf_work(range(4))
+
+        self.assertEqual(mock_loop.create_future.call_count, 4)
+        mock_gather.assert_called_once()
+
+        self.assertEqual(inf_stage._inf_queue.qsize(), 4)
 
 
 if __name__ == '__main__':
