@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import dataclasses
+import os
 import typing
 
 import cupy as cp
@@ -21,6 +22,16 @@ import pandas as pd
 import cudf
 
 from morpheus.config import Config
+import morpheus._lib.messages as neom
+
+NO_CPP = os.environ.get('MORPHEUS_NO_CPP')
+
+class MessageImpl(type):
+    def __call__(cls, *args, **kwargs):
+        if NO_CPP is None and Config.get().use_cpp and getattr(cls, 'CPP_IMPL') is not None:
+            return cls.CPP_IMPL(*args, **kwargs)
+
+        return super(MessageImpl, cls).__call__(*args, **kwargs)
 
 
 @dataclasses.dataclass
@@ -33,7 +44,7 @@ class MessageData:
 
 
 @dataclasses.dataclass
-class MessageMeta:
+class MessageMeta(metaclass=MessageImpl):
     """
     This is a container class to hold batch deserialized messages metadata.
 
@@ -43,7 +54,7 @@ class MessageMeta:
         Input rows in dataframe.
 
     """
-
+    CPP_IMPL = neom.MessageMeta
     df: pd.DataFrame
 
     @property
@@ -63,12 +74,12 @@ class MessageMeta:
 
 @dataclasses.dataclass
 class UserMessageMeta(MessageMeta):
-
+    CPP_IMPL = None
     user_id: str
 
 
 @dataclasses.dataclass
-class MultiMessage(MessageData):
+class MultiMessage(MessageData, metaclass=MessageImpl):
     """
     This class holds data for multiple messages at a time. To avoid copying data for slicing operations, it
     holds a reference to a batched metadata object and stores the offset and count into that batch.
@@ -83,7 +94,7 @@ class MultiMessage(MessageData):
         Messages count
 
     """
-
+    CPP_IMPL = neom.MultiMessage
     meta: MessageMeta = dataclasses.field(repr=False)
     mess_offset: int
     mess_count: int
@@ -218,7 +229,7 @@ class MultiMessage(MessageData):
 
 
 @dataclasses.dataclass
-class InferenceMemory(MessageData):
+class InferenceMemory(MessageData, metaclass=MessageImpl):
     """
     This is a base container class for data that will be used for inference stages. This class is designed to
     hold generic tensor data in cupy arrays.
@@ -231,7 +242,7 @@ class InferenceMemory(MessageData):
         Inference inputs to model.
 
     """
-
+    CPP_IMPL = neom.InferenceMemory
     count: int
 
     inputs: typing.Dict[str, cp.ndarray] = dataclasses.field(default_factory=dict, init=False)
@@ -311,7 +322,7 @@ class InferenceMemoryNLP(InferenceMemory):
         inputs than messages (i.e. If some messages get broken into multiple inference requests)
 
     """
-
+    CPP_IMPL = neom.InferenceMemoryNLP
     input_ids: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
     input_mask: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
     seq_ids: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
@@ -337,7 +348,7 @@ class InferenceMemoryFIL(InferenceMemory):
         inputs than messages (i.e. If some messages get broken into multiple inference requests)
 
     """
-
+    CPP_IMPL = neom.InferenceMemoryFIL
     input__0: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
     seq_ids: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
 
@@ -361,7 +372,7 @@ class InferenceMemoryAE(InferenceMemory):
         inputs than messages (i.e. If some messages get broken into multiple inference requests)
 
     """
-
+    CPP_IMPL = None
     input: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
     seq_ids: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
 
@@ -393,7 +404,7 @@ class MultiInferenceMessage(MultiMessage):
         Message count in inference memory instance.
 
     """
-
+    CPP_IMPL = neom.MultiInferenceMessage
     memory: InferenceMemory = dataclasses.field(repr=False)
     offset: int
     count: int
@@ -479,6 +490,7 @@ class MultiInferenceNLPMessage(MultiInferenceMessage):
     A stronger typed version of `MultiInferenceMessage` that is used for NLP workloads. Helps ensure the
     proper inputs are set and eases debugging.
     """
+    CPP_IMPL = neom.MultiInferenceNLPMessage
     @property
     def input_ids(self):
         """
@@ -529,6 +541,7 @@ class MultiInferenceFILMessage(MultiInferenceMessage):
     A stronger typed version of `MultiInferenceMessage` that is used for FIL workloads. Helps ensure the
     proper inputs are set and eases debugging.
     """
+    CPP_IMPL = neom.MultiInferenceFILMessage
     @property
     def input__0(self):
         """
@@ -571,10 +584,11 @@ def set_output(instance: "ResponseMemory", name: str, value):
 
 
 @dataclasses.dataclass
-class ResponseMemory(MessageData):
+class ResponseMemory(MessageData, metaclass=MessageImpl):
     """
     Output memory block holding the results of inference.
     """
+    CPP_IMPL = neom.ResponseMemory
     count: int
 
     outputs: typing.Dict[str, cp.ndarray] = dataclasses.field(default_factory=dict, init=False)
@@ -588,7 +602,7 @@ class ResponseMemory(MessageData):
 
 @dataclasses.dataclass
 class ResponseMemoryProbs(ResponseMemory):
-
+    CPP_IMPL = neom.ResponseMemoryProbs
     probs: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_output, set_output)
 
     def __post_init__(self, probs):
@@ -597,7 +611,7 @@ class ResponseMemoryProbs(ResponseMemory):
 
 @dataclasses.dataclass
 class ResponseMemoryAE(ResponseMemoryProbs):
-
+    CPP_IMPL = None
     user_id: str = ""
 
 
@@ -616,7 +630,7 @@ class MultiResponseMessage(MultiMessage):
         Inference results size of all responses.
 
     """
-
+    CPP_IMPL = neom.MultiResponseMessage
     memory: ResponseMemory = dataclasses.field(repr=False)
     offset: int
     count: int
@@ -696,6 +710,7 @@ class MultiResponseProbsMessage(MultiResponseMessage):
     A stronger typed version of `MultiResponseMessage` that is used for inference workloads that return a probability
     array. Helps ensure the proper outputs are set and eases debugging.
     """
+    CPP_IMPL = neom.MultiResponseProbsMessage
     @property
     def probs(self):
         """
@@ -717,22 +732,5 @@ class MultiResponseAEMessage(MultiResponseProbsMessage):
     A stronger typed version of `MultiResponseProbsMessage` that is used for inference workloads that return a
     probability array. Helps ensure the proper outputs are set and eases debugging.
     """
+    CPP_IMPL = None
     user_id: str
-
-
-if (Config.get().use_cpp and "__sphinx_build__" not in __builtins__):
-
-    import morpheus._lib.messages as neom
-
-    MessageMeta = neom.MessageMeta
-    MultiMessage = neom.MultiMessage
-    InferenceMemory = neom.InferenceMemory
-    InferenceMemoryNLP = neom.InferenceMemoryNLP
-    InferenceMemoryFIL = neom.InferenceMemoryFIL
-    MultiInferenceMessage = neom.MultiInferenceMessage
-    MultiInferenceNLPMessage = neom.MultiInferenceNLPMessage
-    MultiInferenceFILMessage = neom.MultiInferenceFILMessage
-    ResponseMemory = neom.ResponseMemory
-    ResponseMemoryProbs = neom.ResponseMemoryProbs
-    MultiResponseMessage = neom.MultiResponseMessage
-    MultiResponseProbsMessage = neom.MultiResponseProbsMessage
