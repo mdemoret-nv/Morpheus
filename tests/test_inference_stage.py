@@ -26,15 +26,20 @@ from morpheus.config import Config
 Config.get().use_cpp = False
 
 from morpheus.pipeline.inference import inference_stage
+from morpheus.pipeline.messages import ResponseMemoryProbs
 from morpheus.utils.producer_consumer_queue import Closed
 from morpheus.utils.producer_consumer_queue import ProducerConsumerQueue
 from tests import BaseMorpheusTest
 
 
+class TestIW(inference_stage.InferenceWorker):
+    def calc_output_dims(self, _):
+        return (1, 2)
+
 class InferenceStage(inference_stage.InferenceStage):
     # Subclass InferenceStage to implement the abstract methods
-    def _get_inference_worker():
-        return None
+    def _get_inference_worker(self, pq):
+        return TestIW(pq)
 
 
 class TestInferenceStage(BaseMorpheusTest):
@@ -61,22 +66,103 @@ class TestInferenceStage(BaseMorpheusTest):
         mock_node = mock.MagicMock()
         mock_segment = mock.MagicMock()
         mock_segment.make_node_full.return_value = mock_node
-        mock_input = mock.MagicMock()
+        mock_input_stream = mock.MagicMock()
 
         config = Config.get()
         config.num_threads = 17
         inf_stage = InferenceStage(config)
-        inf_stage._build_single(mock_segment, mock_input)
+        inf_stage._build_single(mock_segment, mock_input_stream)
 
         mock_segment.make_node_full.assert_called_once()
         mock_segment.make_edge.assert_called_once()
         self.assertEqual(mock_node.concurrency, 17)
 
+    def test_py_inf_fn(self):
+        mock_node = mock.MagicMock()
+        mock_segment = mock.MagicMock()
+        mock_segment.make_node_full.return_value = mock_node
+        mock_input_stream = mock.MagicMock()
+
+        mock_init = mock.MagicMock()
+        TestIW.init = mock_init
+
+        config = Config.get()
+        config.num_threads = 17
+        inf_stage = InferenceStage(config)
+        inf_stage._build_single(mock_segment, mock_input_stream)
+
+        py_inference_fn = mock_segment.make_node_full.call_args[0][1]
+
+        mock_pipe = mock.MagicMock()
+        mock_observable = mock.MagicMock()
+        mock_observable.pipe.return_value = mock_pipe
+        mock_subscriber = mock.MagicMock()
+        py_inference_fn(mock_observable, mock_subscriber)
+
+        mock_observable.pipe.assert_called_once()
+        mock_pipe.subscribe.assert_called_once_with(mock_subscriber)
+
+
+    @mock.patch('neo.Future')
+    @mock.patch('morpheus.pipeline.inference.inference_stage.ops')
+    def test_py_inf_fn_on_next(self, mock_ops, mock_future):
+        mock_future.return_value = mock_future
+        mock_node = mock.MagicMock()
+        mock_segment = mock.MagicMock()
+        mock_segment.make_node_full.return_value = mock_node
+        mock_input_stream = mock.MagicMock()
+
+        mock_init = mock.MagicMock()
+        TestIW.init = mock_init
+        TestIW.process = mock.MagicMock()
+
+        config = Config.get()
+        inf_stage = InferenceStage(config)
+        inf_stage._build_single(mock_segment, mock_input_stream)
+
+        py_inference_fn = mock_segment.make_node_full.call_args[0][1]
+
+        mock_pipe = mock.MagicMock()
+        mock_observable = mock.MagicMock()
+        mock_observable.pipe.return_value = mock_pipe
+        mock_subscriber = mock.MagicMock()
+        py_inference_fn(mock_observable, mock_subscriber)
+
+        mock_ops.map.assert_called_once()
+        on_next = mock_ops.map.call_args[0][0]
+
+        mock_message = mock.MagicMock()
+        mock_message.probs = cp.array([[0.1, 0.5, 0.8], [0.2, 0.6, 0.9]])
+        mock_message.count = 1
+        mock_message.mess_offset = 0
+        mock_message.mess_count = 1
+        mock_message.offset = 0
+        mock_message.get_input.return_value = cp.array([[0, 1, 2], [0, 1, 2]])
+
+        mock_slice = mock.MagicMock()
+        mock_slice.mess_count = 1
+        mock_slice.count = 1
+        mock_message.get_slice.return_value = mock_slice
+
+        output_message = on_next(mock_message)
+        self.assertEqual(output_message.count, 1)
+        self.assertEqual(output_message.mess_offset, 0)
+        self.assertEqual(output_message.mess_count, 1)
+        self.assertEqual(output_message.offset, 0)
+
+        mock_future.result.assert_called_once()
+        mock_future.set_result.assert_not_called()
+
+        TestIW.process.assert_called_once()
+        set_output_fut = TestIW.process.call_args[0][1]
+        set_output_fut(ResponseMemoryProbs(count=1, probs=cp.zeros((1, 2))))
+        mock_future.set_result.assert_called_once()
+
     def test_build_single_cpp(self):
         mock_node = mock.MagicMock()
         mock_segment = mock.MagicMock()
         mock_segment.make_node_full.return_value = mock_node
-        mock_input = mock.MagicMock()
+        mock_input_stream = mock.MagicMock()
 
         config = Config.get()
         config.use_cpp = True
@@ -85,7 +171,7 @@ class TestInferenceStage(BaseMorpheusTest):
         inf_stage.supports_cpp_node = lambda: True
         inf_stage._get_cpp_inference_node = lambda x: mock_node
 
-        inf_stage._build_single(mock_segment, mock_input)
+        inf_stage._build_single(mock_segment, mock_input_stream)
 
         mock_segment.make_node_full.assert_not_called()
         mock_segment.make_edge.assert_called_once()
@@ -95,13 +181,13 @@ class TestInferenceStage(BaseMorpheusTest):
         mock_node = mock.MagicMock()
         mock_segment = mock.MagicMock()
         mock_segment.make_node_full.return_value = mock_node
-        mock_input = mock.MagicMock()
+        mock_input_stream = mock.MagicMock()
 
         config = Config.get()
         config.use_cpp = True
         inf_stage = InferenceStage(config)
         inf_stage.supports_cpp_node = lambda: True
-        self.assertRaises(NotImplementedError, inf_stage._build_single, mock_segment, mock_input)
+        self.assertRaises(NotImplementedError, inf_stage._build_single, mock_segment, mock_input_stream)
 
     def test_start(self):
         mock_start = mock.MagicMock()
