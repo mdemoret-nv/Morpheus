@@ -121,6 +121,7 @@ class TestInferenceStage(BaseMorpheusTest):
         TestIW.process = mock.MagicMock()
 
         config = Config.get()
+        config.use_cpp = False
         inf_stage = InferenceStage(config)
         inf_stage._build_single(mock_segment, mock_input_stream)
 

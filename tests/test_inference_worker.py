@@ -82,6 +82,8 @@ class TestInferenceWorker(BaseMorpheusTest):
     def test_build_output_message(self):
         # build_output_message calls calc_output_dims which is abstract
         # creating a subclass for the purpose of testing
+        config = Config.get()
+        config.use_cpp = False
         class TestIW(inference_stage.InferenceWorker):
             def calc_output_dims(self, _):
                 return (1, 2)

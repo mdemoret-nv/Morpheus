@@ -128,6 +128,7 @@ class TestMonitor(BaseMorpheusTest):
 
     def test_auto_count_fn(self):
         config = Config.get()
+        config.use_cpp = False
         m = gs.MonitorStage(config)
 
         self.assertIsNone(m._auto_count_fn(None))
@@ -154,6 +155,7 @@ class TestMonitor(BaseMorpheusTest):
         mock_tqdm.return_value = mock_tqdm
 
         config = Config.get()
+        config.use_cpp = False
         m = gs.MonitorStage(config)
         m.on_start()
 

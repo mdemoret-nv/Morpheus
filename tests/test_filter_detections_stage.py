@@ -47,6 +47,7 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
 
     def test_filter(self):
         config = Config.get()
+        config.use_cpp = False
         fds = FilterDetectionsStage(config, threshold=0.5)
 
         mock_message = mock.MagicMock()
