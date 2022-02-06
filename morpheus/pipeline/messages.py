@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import dataclasses
+from functools import partial
 import os
 import typing
 
@@ -26,12 +27,28 @@ import morpheus._lib.messages as neom
 
 NO_CPP = os.environ.get('MORPHEUS_NO_CPP')
 
-class MessageImpl(type):
-    def __call__(cls, *args, **kwargs):
-        if NO_CPP is None and Config.get().use_cpp and getattr(cls, 'CPP_IMPL') is not None:
-            return cls.CPP_IMPL(*args, **kwargs)
 
-        return super(MessageImpl, cls).__call__(*args, **kwargs)
+class MessageImpl(type):
+    """
+    Metaclass to switch between Python & C++ message implementations at construction time.
+    Note: some classes don't have a C++ implementation, but do inherit from a class that
+    does (ex UserMessageMeta & InferenceMemoryAE) these classes also need this metaclass
+    to prevent creating instances of their parent's C++ impl.
+    """
+    def __new__(cls, classname, bases, classdict, cpp_class=None):
+        result = type.__new__(cls, classname, bases, classdict)
+        if NO_CPP is None:
+            def factory_method(kls, *args, **kwargs):
+                if cpp_class is not None and Config.get().use_cpp:
+                    return cpp_class(*args, **kwargs)
+
+                inst = object.__new__(kls)
+                inst.__init__(*args, **kwargs)
+                return inst
+
+            result.__new__ = factory_method
+
+        return result
 
 
 @dataclasses.dataclass
@@ -44,7 +61,7 @@ class MessageData:
 
 
 @dataclasses.dataclass
-class MessageMeta(metaclass=MessageImpl):
+class MessageMeta(metaclass=MessageImpl, cpp_class=neom.MessageMeta):
     """
     This is a container class to hold batch deserialized messages metadata.
 
@@ -54,7 +71,6 @@ class MessageMeta(metaclass=MessageImpl):
         Input rows in dataframe.
 
     """
-    CPP_IMPL = neom.MessageMeta
     df: pd.DataFrame
 
     @property
@@ -73,13 +89,12 @@ class MessageMeta(metaclass=MessageImpl):
 
 
 @dataclasses.dataclass
-class UserMessageMeta(MessageMeta):
-    CPP_IMPL = None
+class UserMessageMeta(MessageMeta, metaclass=MessageImpl, cpp_class=None):
     user_id: str
 
 
 @dataclasses.dataclass
-class MultiMessage(MessageData, metaclass=MessageImpl):
+class MultiMessage(MessageData, metaclass=MessageImpl, cpp_class=neom.MultiMessage):
     """
     This class holds data for multiple messages at a time. To avoid copying data for slicing operations, it
     holds a reference to a batched metadata object and stores the offset and count into that batch.
@@ -94,7 +109,6 @@ class MultiMessage(MessageData, metaclass=MessageImpl):
         Messages count
 
     """
-    CPP_IMPL = neom.MultiMessage
     meta: MessageMeta = dataclasses.field(repr=False)
     mess_offset: int
     mess_count: int
@@ -229,7 +243,7 @@ class MultiMessage(MessageData, metaclass=MessageImpl):
 
 
 @dataclasses.dataclass
-class InferenceMemory(MessageData, metaclass=MessageImpl):
+class InferenceMemory(MessageData, metaclass=MessageImpl, cpp_class=neom.InferenceMemory):
     """
     This is a base container class for data that will be used for inference stages. This class is designed to
     hold generic tensor data in cupy arrays.
@@ -242,7 +256,6 @@ class InferenceMemory(MessageData, metaclass=MessageImpl):
         Inference inputs to model.
 
     """
-    CPP_IMPL = neom.InferenceMemory
     count: int
 
     inputs: typing.Dict[str, cp.ndarray] = dataclasses.field(default_factory=dict, init=False)
@@ -306,7 +319,7 @@ def set_input(instance, name: str, value):
 
 
 @dataclasses.dataclass
-class InferenceMemoryNLP(InferenceMemory):
+class InferenceMemoryNLP(InferenceMemory, cpp_class=neom.InferenceMemoryNLP):
     """
     This is a container class for data that needs to be submitted to the inference server for NLP category
     usecases.
@@ -322,7 +335,6 @@ class InferenceMemoryNLP(InferenceMemory):
         inputs than messages (i.e. If some messages get broken into multiple inference requests)
 
     """
-    CPP_IMPL = neom.InferenceMemoryNLP
     input_ids: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
     input_mask: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
     seq_ids: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
@@ -334,7 +346,7 @@ class InferenceMemoryNLP(InferenceMemory):
 
 
 @dataclasses.dataclass
-class InferenceMemoryFIL(InferenceMemory):
+class InferenceMemoryFIL(InferenceMemory, cpp_class=neom.InferenceMemoryFIL):
     """
     This is a container class for data that needs to be submitted to the inference server for FIL category
     usecases.
@@ -348,7 +360,6 @@ class InferenceMemoryFIL(InferenceMemory):
         inputs than messages (i.e. If some messages get broken into multiple inference requests)
 
     """
-    CPP_IMPL = neom.InferenceMemoryFIL
     input__0: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
     seq_ids: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
 
@@ -358,7 +369,7 @@ class InferenceMemoryFIL(InferenceMemory):
 
 
 @dataclasses.dataclass
-class InferenceMemoryAE(InferenceMemory):
+class InferenceMemoryAE(InferenceMemory, cpp_class=None):
     """
     This is a container class for data that needs to be submitted to the inference server for FIL category
     usecases.
@@ -372,7 +383,6 @@ class InferenceMemoryAE(InferenceMemory):
         inputs than messages (i.e. If some messages get broken into multiple inference requests)
 
     """
-    CPP_IMPL = None
     input: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
     seq_ids: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_input, set_input)
 
@@ -382,7 +392,7 @@ class InferenceMemoryAE(InferenceMemory):
 
 
 @dataclasses.dataclass
-class MultiInferenceMessage(MultiMessage):
+class MultiInferenceMessage(MultiMessage, cpp_class=neom.MultiInferenceMessage):
     """
     This is a container class that holds the InferenceMemory container and the metadata of the data contained
     within it. Builds on top of the `MultiMessage` class to add additional data for inferencing.
@@ -404,7 +414,6 @@ class MultiInferenceMessage(MultiMessage):
         Message count in inference memory instance.
 
     """
-    CPP_IMPL = neom.MultiInferenceMessage
     memory: InferenceMemory = dataclasses.field(repr=False)
     offset: int
     count: int
@@ -485,12 +494,11 @@ class MultiInferenceMessage(MultiMessage):
 
 
 @dataclasses.dataclass
-class MultiInferenceNLPMessage(MultiInferenceMessage):
+class MultiInferenceNLPMessage(MultiInferenceMessage, cpp_class=neom.MultiInferenceNLPMessage):
     """
     A stronger typed version of `MultiInferenceMessage` that is used for NLP workloads. Helps ensure the
     proper inputs are set and eases debugging.
     """
-    CPP_IMPL = neom.MultiInferenceNLPMessage
     @property
     def input_ids(self):
         """
@@ -536,12 +544,12 @@ class MultiInferenceNLPMessage(MultiInferenceMessage):
 
 
 @dataclasses.dataclass
-class MultiInferenceFILMessage(MultiInferenceMessage):
+class MultiInferenceFILMessage(MultiInferenceMessage, cpp_class=neom.MultiInferenceFILMessage):
     """
     A stronger typed version of `MultiInferenceMessage` that is used for FIL workloads. Helps ensure the
     proper inputs are set and eases debugging.
     """
-    CPP_IMPL = neom.MultiInferenceFILMessage
+
     @property
     def input__0(self):
         """
@@ -584,11 +592,10 @@ def set_output(instance: "ResponseMemory", name: str, value):
 
 
 @dataclasses.dataclass
-class ResponseMemory(MessageData, metaclass=MessageImpl):
+class ResponseMemory(MessageData, metaclass=MessageImpl, cpp_class=neom.ResponseMemory):
     """
     Output memory block holding the results of inference.
     """
-    CPP_IMPL = neom.ResponseMemory
     count: int
 
     outputs: typing.Dict[str, cp.ndarray] = dataclasses.field(default_factory=dict, init=False)
@@ -601,8 +608,7 @@ class ResponseMemory(MessageData, metaclass=MessageImpl):
 
 
 @dataclasses.dataclass
-class ResponseMemoryProbs(ResponseMemory):
-    CPP_IMPL = neom.ResponseMemoryProbs
+class ResponseMemoryProbs(ResponseMemory, cpp_class=neom.ResponseMemoryProbs):
     probs: dataclasses.InitVar[cp.ndarray] = DataClassProp(get_output, set_output)
 
     def __post_init__(self, probs):
@@ -610,13 +616,12 @@ class ResponseMemoryProbs(ResponseMemory):
 
 
 @dataclasses.dataclass
-class ResponseMemoryAE(ResponseMemoryProbs):
-    CPP_IMPL = None
+class ResponseMemoryAE(ResponseMemoryProbs, cpp_class=None):
     user_id: str = ""
 
 
 @dataclasses.dataclass
-class MultiResponseMessage(MultiMessage):
+class MultiResponseMessage(MultiMessage, cpp_class=neom.MultiResponseMessage):
     """
     This class contains several inference responses as well as the cooresponding message metadata.
 
@@ -630,7 +635,7 @@ class MultiResponseMessage(MultiMessage):
         Inference results size of all responses.
 
     """
-    CPP_IMPL = neom.MultiResponseMessage
+
     memory: ResponseMemory = dataclasses.field(repr=False)
     offset: int
     count: int
@@ -705,12 +710,12 @@ class MultiResponseMessage(MultiMessage):
 
 
 @dataclasses.dataclass
-class MultiResponseProbsMessage(MultiResponseMessage):
+class MultiResponseProbsMessage(MultiResponseMessage, cpp_class=neom.MultiResponseProbsMessage):
     """
     A stronger typed version of `MultiResponseMessage` that is used for inference workloads that return a probability
     array. Helps ensure the proper outputs are set and eases debugging.
     """
-    CPP_IMPL = neom.MultiResponseProbsMessage
+
     @property
     def probs(self):
         """
@@ -727,10 +732,10 @@ class MultiResponseProbsMessage(MultiResponseMessage):
 
 
 @dataclasses.dataclass
-class MultiResponseAEMessage(MultiResponseProbsMessage):
+class MultiResponseAEMessage(MultiResponseProbsMessage, cpp_class=None):
     """
     A stronger typed version of `MultiResponseProbsMessage` that is used for inference workloads that return a
     probability array. Helps ensure the proper outputs are set and eases debugging.
     """
-    CPP_IMPL = None
+
     user_id: str

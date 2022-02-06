@@ -27,6 +27,7 @@ pytest --cov=morpheus --cov-report term-missing  \
     ${TEST_DIR}/test_filter_detections_stage.py \
     ${TEST_DIR}/test_inference_stage.py \
     ${TEST_DIR}/test_inference_worker.py \
+    ${TEST_DIR}/test_messages.py \
     ${TEST_DIR}/test_monitor_stage.py \
     ${TEST_DIR}/test_package.py \
     ${TEST_DIR}/test_trigger_stage.py
