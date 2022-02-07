@@ -97,15 +97,16 @@ class BaseMorpheusTest(unittest.TestCase):
     def _partition_array(self, array, chunk_size):
         return np.split(array, range(chunk_size, len(array), chunk_size))
 
-    def _wait_for_camouflage(self, host="localhost", port=8000, timeout=5):
+    def _wait_for_camouflage(self, popen, root_dir, host="localhost", port=8000, timeout=5):
         ready = False
         elapsed_time = 0.0
         sleep_time = 0.1
-        url = "http://{}:{}/v2/health/ready".format(host, port)
-        while not ready and elapsed_time < timeout:
+        url = "http://{}:{}/ping".format(host, port)
+        while not ready and elapsed_time < timeout and popen.poll() is None:
             try:
-                r = requests.get(url)
-                ready = (r.status_code == 200)
+                r = requests.get(url, timeout=1)
+                if r.status_code == 200:
+                    ready = r.json()['message'] == 'I am alive.'
             except Exception as e:
                 pass
 
@@ -113,10 +114,14 @@ class BaseMorpheusTest(unittest.TestCase):
                 time.sleep(sleep_time)
                 elapsed_time += sleep_time
 
+        if popen.poll() is not None:
+            raise RuntimeError("camouflage server exited with status code={} details in: {}".\
+                format(popen.poll(), os.path.join(root_dir, 'camouflage.log')))
+
         return ready
 
     def _kill_proc(self, proc, timeout=1):
-        logging.debug("killing pid {}".format(proc.pid))
+        logging.info("killing pid {}".format(proc.pid))
 
         elapsed_time = 0.0
         sleep_time = 0.1
@@ -146,9 +151,9 @@ class BaseMorpheusTest(unittest.TestCase):
                                      stderr=subprocess.DEVNULL,
                                      stdout=subprocess.DEVNULL)
 
-            logging.debug("Launching camouflage in {} with pid: {}".format(root_dir, popen.pid))
+            logging.info("Launching camouflage in {} with pid: {}".format(root_dir, popen.pid))
             self.addCleanup(self._kill_proc, popen)
 
             if timeout > 0:
-                if not self._wait_for_camouflage(timeout=timeout):
+                if not self._wait_for_camouflage(popen, root_dir, timeout=timeout):
                     raise RuntimeError("Failed to launch camouflage server")
