@@ -1,2 +1,7 @@
 morpheus/_version.py export-subst
 data/* filter=lfs diff=lfs merge=lfs -text
+expected_data filter=lfs diff=lfs merge=lfs -text
+triton_abp_inf_results.csv filter=lfs diff=lfs merge=lfs -text
+triton_phishing_inf_results.csv filter=lfs diff=lfs merge=lfs -text
+triton_sid_inf_results.csv filter=lfs diff=lfs merge=lfs -text
+*.body filter=lfs diff=lfs merge=lfs -text

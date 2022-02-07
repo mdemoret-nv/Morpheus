@@ -91,7 +91,7 @@ class TestHammah(BaseMorpheusTest):
 
         pipe.run()
         results = self._calc_error_val(results_file_name)
-        self.assertEqual(results.error_pct, 0)
+        self.assertEqual(results.diff_rows, 3)
 
     def test_hammah_user123(self):
         config = Config.get()
@@ -156,7 +156,7 @@ class TestHammah(BaseMorpheusTest):
 
         pipe.run()
         results = self._calc_error_val(results_file_name)
-        self.assertLess(results.error_pct, 5)
+        self.assertEqual(results.diff_rows, 48)
 
 
 if __name__ == '__main__':
