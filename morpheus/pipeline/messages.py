@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import dataclasses
-from functools import partial
 import os
 import typing
 
