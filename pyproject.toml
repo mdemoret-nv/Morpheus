@@ -15,5 +15,6 @@ filterwarnings = [
    'ignore:Initializing zero-element tensors is a no-op',
    'ignore:`np.MachAr` is deprecated \(NumPy 1.22\).',
    'ignore:`cupy.bool` is a deprecated alias for the Python scalar type `bool`. Please use the builtin `bool` or its corresponding NumPy scalar type `cupy.bool_` instead.',
-   'ignore:numpy.ufunc size changed, may indicate binary incompatibility. Expected 216 from C header, got 232 from PyObject'
+   'ignore:numpy.ufunc size changed, may indicate binary incompatibility. Expected 216 from C header, got 232 from PyObject',
+   'ignore:`np.object` is a deprecated alias for the builtin `object`. To silence this warning, use `object` by itself. Doing this will not modify any behavior and is safe'
 ]

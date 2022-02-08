@@ -92,7 +92,7 @@ class TestHammah(BaseMorpheusTest):
 
         pipe.run()
         results = self._calc_error_val(results_file_name)
-        self.assertLess(results.error_pct, 1)
+        self.assertEqual(results.diff_rows, 3)
 
     @unittest.skipIf(os.environ.get("MORPHEUS_RUN_SLOW_TESTS") is None, "MORPHEUS_RUN_SLOW_TESTS is not defined")
     def test_hammah_user123(self):
@@ -158,7 +158,7 @@ class TestHammah(BaseMorpheusTest):
 
         pipe.run()
         results = self._calc_error_val(results_file_name)
-        self.assertLess(results.error_pct, 6)
+        self.assertEqual(results.diff_rows, 48)
 
 
 if __name__ == '__main__':

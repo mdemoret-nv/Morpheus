@@ -1050,11 +1050,11 @@ class Pipeline():
         with open(filename, "wb") as f:
             f.write(viz_binary)
 
-    def run(self):
+    async def _do_run(self):
         """
-        This function makes use of asyncio features to keep the pipeline running indefinitely.
+        This function sets up the current asyncio loop, builds the pipeline, and awaits on it to complete
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def error_handler(_, context: dict):
 
@@ -1084,33 +1084,32 @@ class Pipeline():
             loop.add_signal_handler(s, term_signal)
 
         try:
-
-            # self._neo_executor = neo.Executor(self._exec_options)
-
-            # self.build()
-
-            # self._neo_executor.register_pipeline(self._neo_pipeline)
-
-            # self._neo_executor.start()
-
-            # self._neo_executor.join()
-
             self.build_and_start()
 
             # Wait for completion
-            loop.run_until_complete(self.join())
+            await self.join()
 
         except KeyboardInterrupt:
             tqdm.write("Stopping pipeline. Please wait...")
 
-            loop.run_until_complete(self.stop())
-            loop.run_until_complete(self.join())
+            # Stop the pipeline
+            self.stop()
+
+            # Wait again for nice completion
+            await self.join()
+
         finally:
             # Shutdown the async generator sources and exit
-            loop.shutdown_asyncgens()
-            loop.close()
-            asyncio.set_event_loop(asyncio.new_event_loop())
             logger.info("====Pipeline Complete====")
+
+    def run(self):
+        """
+        This function makes use of asyncio features to keep the pipeline running indefinitely.
+        """
+
+        # Use asyncio.run() to launch the pipeline. This creates and destroys an event loop so re-running a pipeline in
+        # the same process wont fail
+        asyncio.run(self._do_run())
 
 
 class LinearPipeline(Pipeline):
