@@ -37,6 +37,15 @@ class MessageImpl(type):
     """
     def __new__(cls, classname, bases, classdict, cpp_class=None):
         result = type.__new__(cls, classname, bases, classdict)
+
+        @classmethod
+        def get_impl_class(kls):
+            if NO_CPP is None and cpp_class is not None and Config.get().use_cpp:
+                return cpp_class
+            return kls
+
+        result.get_impl_class = get_impl_class
+
         if NO_CPP is None:
             def factory_method(kls, *args, **kwargs):
                 if cpp_class is not None and Config.get().use_cpp:
