@@ -1,7 +1,6 @@
 import os
 import importlib
 import unittest
-from unittest import mock
 
 import cupy as cp
 
@@ -12,149 +11,109 @@ from tests import BaseMorpheusTest
 
 
 class TestMessages(BaseMorpheusTest):
+    def check_message(self: unittest.TestCase,
+                      python_type: type,
+                      cpp_type: type,
+                      should_be_cpp: bool,
+                      no_cpp_class: bool,
+                      args: tuple):
+
+        instance = python_type(*args)
+
+        # Check that the C++ type is set in the class
+        self.assertIs(python_type._cpp_class, None if no_cpp_class else cpp_type)
+
+        # Check that the isinstance to Python type works
+        self.assertIsInstance(instance, python_type)
+
+        # Check that the instantiated class is the right type
+        self.assertIs(instance.__class__, cpp_type if should_be_cpp and cpp_type is not None else python_type)
+
+    def check_all_messages(self, should_be_cpp: bool, no_cpp_class: bool):
+
+        self.check_message(messages.MessageMeta, neom.MessageMeta, should_be_cpp, no_cpp_class, (None, ))
+
+        # UserMessageMeta doesn't contain a C++ impl, so we should
+        # always received the python impl
+        self.check_message(messages.UserMessageMeta, None, should_be_cpp, no_cpp_class, (None, None))
+
+        self.check_message(messages.MultiMessage, neom.MultiMessage, should_be_cpp, no_cpp_class, (None, 0, 1))
+
+        self.assertIs(messages.InferenceMemory._cpp_class, None if no_cpp_class else neom.InferenceMemory)
+        # C++ impl for InferenceMemory doesn't have a constructor
+        if (should_be_cpp):
+            self.assertRaises(TypeError, messages.InferenceMemory, 1)
+
+        cp_array = cp.zeros((1, 2))
+
+        self.check_message(messages.InferenceMemoryNLP,
+                           neom.InferenceMemoryNLP,
+                           should_be_cpp,
+                           no_cpp_class, (1, cp_array, cp_array, cp_array))
+
+        self.check_message(messages.InferenceMemoryFIL,
+                           neom.InferenceMemoryFIL,
+                           should_be_cpp,
+                           no_cpp_class, (1, cp_array, cp_array))
+
+        # No C++ impl, should always get the Python class
+        self.check_message(messages.InferenceMemoryAE, None, should_be_cpp, no_cpp_class, (1, cp_array, cp_array))
+
+        self.check_message(messages.MultiInferenceMessage,
+                           neom.MultiInferenceMessage,
+                           should_be_cpp,
+                           no_cpp_class, (None, 0, 1, None, 0, 1))
+
+        self.check_message(messages.MultiInferenceNLPMessage,
+                           neom.MultiInferenceNLPMessage,
+                           should_be_cpp,
+                           no_cpp_class, (None, 0, 1, None, 0, 1))
+
+        self.check_message(messages.MultiInferenceFILMessage,
+                           neom.MultiInferenceFILMessage,
+                           should_be_cpp,
+                           no_cpp_class, (None, 0, 1, None, 0, 1))
+
+        self.assertIs(messages.ResponseMemory._cpp_class, None if no_cpp_class else neom.ResponseMemory)
+        # C++ impl doesn't have a constructor
+        if (should_be_cpp):
+            self.assertRaises(TypeError, messages.ResponseMemory, 1)
+
+        self.check_message(messages.ResponseMemoryProbs,
+                           neom.ResponseMemoryProbs,
+                           should_be_cpp,
+                           no_cpp_class, (1, cp_array))
+
+        # No C++ impl
+        self.check_message(messages.ResponseMemoryAE, None, should_be_cpp, no_cpp_class, (1, cp_array))
+
+        self.check_message(messages.MultiResponseMessage,
+                           neom.MultiResponseMessage,
+                           should_be_cpp,
+                           no_cpp_class, (None, 0, 1, None, 0, 1))
+
+        self.check_message(messages.MultiResponseProbsMessage,
+                           neom.MultiResponseProbsMessage,
+                           should_be_cpp,
+                           no_cpp_class, (None, 0, 1, None, 0, 1))
+
+        # No C++ impl
+        self.check_message(messages.MultiResponseAEMessage,
+                           None,
+                           should_be_cpp,
+                           no_cpp_class, (None, 0, 1, None, 0, 1, ''))
+
     def test_constructor_cpp(self):
         config = Config.get()
         config.use_cpp = True
 
-        self.assertIs(messages.MessageMeta.get_impl_class(), neom.MessageMeta)
-        m = messages.MessageMeta(None)
-        self.assertIsInstance(m, neom.MessageMeta)
-
-        # UserMessageMeta doesn't contain a C++ impl, so we should
-        # always received the python impl
-        self.assertIs(messages.UserMessageMeta.get_impl_class(), messages.UserMessageMeta)
-        m = messages.UserMessageMeta(None, None)
-        self.assertIsInstance(m, messages.UserMessageMeta)
-
-        self.assertIs(messages.MultiMessage.get_impl_class(), neom.MultiMessage)
-        m = messages.MultiMessage(None, 0, 1)
-        self.assertIsInstance(m, neom.MultiMessage)
-
-        self.assertIs(messages.InferenceMemory.get_impl_class(), neom.InferenceMemory)
-        # C++ impl for InferenceMemory doesn't have a constructor
-        self.assertRaises(TypeError, messages.InferenceMemory, 1)
-
-        cp_array = cp.zeros((1, 2))
-
-        self.assertIs(messages.InferenceMemoryNLP.get_impl_class(), neom.InferenceMemoryNLP)
-        m = messages.InferenceMemoryNLP(1, cp_array, cp_array, cp_array)
-        self.assertIsInstance(m, neom.InferenceMemoryNLP)
-
-        self.assertIs(messages.InferenceMemoryFIL.get_impl_class(), neom.InferenceMemoryFIL)
-        m = messages.InferenceMemoryFIL(1, cp_array, cp_array)
-        self.assertIsInstance(m, neom.InferenceMemoryFIL)
-
-        # No C++ impl, should always get the Python class
-        self.assertIs(messages.InferenceMemoryAE.get_impl_class(), messages.InferenceMemoryAE)
-        m = messages.InferenceMemoryAE(1, cp_array, cp_array)
-        self.assertIsInstance(m, messages.InferenceMemoryAE)
-
-        self.assertIs(messages.MultiInferenceMessage.get_impl_class(), neom.MultiInferenceMessage)
-        m = messages.MultiInferenceMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, neom.MultiInferenceMessage)
-
-        self.assertIs(messages.MultiInferenceNLPMessage.get_impl_class(), neom.MultiInferenceNLPMessage)
-        m = messages.MultiInferenceNLPMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, neom.MultiInferenceNLPMessage)
-
-        self.assertIs(messages.MultiInferenceFILMessage.get_impl_class(), neom.MultiInferenceFILMessage)
-        m = messages.MultiInferenceFILMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, neom.MultiInferenceFILMessage)
-
-        self.assertIs(messages.ResponseMemory.get_impl_class(), neom.ResponseMemory)
-        # C++ impl doesn't have a constructor
-        self.assertRaises(TypeError, messages.ResponseMemory, 1)
-
-        self.assertIs(messages.ResponseMemoryProbs.get_impl_class(), neom.ResponseMemoryProbs)
-        m = messages.ResponseMemoryProbs(1, cp_array)
-        self.assertIsInstance(m, neom.ResponseMemoryProbs)
-
-        # No C++ impl
-        self.assertIs(messages.ResponseMemoryAE.get_impl_class(), messages.ResponseMemoryAE)
-        m = messages.ResponseMemoryAE(1, cp_array)
-        self.assertIsInstance(m, messages.ResponseMemoryAE)
-
-        self.assertIs(messages.MultiResponseMessage.get_impl_class(), neom.MultiResponseMessage)
-        m = messages.MultiResponseMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, neom.MultiResponseMessage)
-
-        self.assertIs(messages.MultiResponseProbsMessage.get_impl_class(), neom.MultiResponseProbsMessage)
-        m = messages.MultiResponseProbsMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, neom.MultiResponseProbsMessage)
-
-        # No C++ impl
-        self.assertIs(messages.MultiResponseAEMessage.get_impl_class(), messages.MultiResponseAEMessage)
-        m = messages.MultiResponseAEMessage(None, 0, 1, None, 0, 1, '')
-        self.assertIsInstance(m, messages.MultiResponseAEMessage)
+        self.check_all_messages(True, False)
 
     def test_constructor_no_cpp(self):
         config = Config.get()
         config.use_cpp = False
 
-        self.assertIs(messages.MessageMeta.get_impl_class(), messages.MessageMeta)
-        m = messages.MessageMeta(None)
-        self.assertIsInstance(m, messages.MessageMeta)
-
-        self.assertIs(messages.UserMessageMeta.get_impl_class(), messages.UserMessageMeta)
-        m = messages.UserMessageMeta(None, None)
-        self.assertIsInstance(m, messages.UserMessageMeta)
-
-        self.assertIs(messages.MultiMessage.get_impl_class(), messages.MultiMessage)
-        m = messages.MultiMessage(None, 0, 1)
-        self.assertIsInstance(m, messages.MultiMessage)
-
-        self.assertIs(messages.InferenceMemory.get_impl_class(), messages.InferenceMemory)
-        m = messages.InferenceMemory(1)
-        self.assertIsInstance(m, messages.InferenceMemory)
-
-        cp_array = cp.zeros((1, 2))
-        self.assertIs(messages.InferenceMemoryNLP.get_impl_class(), messages.InferenceMemoryNLP)
-        m = messages.InferenceMemoryNLP(1, cp_array, cp_array, cp_array)
-        self.assertIsInstance(m, messages.InferenceMemoryNLP)
-
-        self.assertIs(messages.InferenceMemoryFIL.get_impl_class(), messages.InferenceMemoryFIL)
-        m = messages.InferenceMemoryFIL(1, cp_array, cp_array)
-        self.assertIsInstance(m, messages.InferenceMemoryFIL)
-
-        self.assertIs(messages.InferenceMemoryAE.get_impl_class(), messages.InferenceMemoryAE)
-        m = messages.InferenceMemoryAE(1, cp_array, cp_array)
-        self.assertIsInstance(m, messages.InferenceMemoryAE)
-
-        self.assertIs(messages.MultiInferenceMessage.get_impl_class(), messages.MultiInferenceMessage)
-        m = messages.MultiInferenceMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiInferenceMessage)
-
-        self.assertIs(messages.MultiInferenceNLPMessage.get_impl_class(), messages.MultiInferenceNLPMessage)
-        m = messages.MultiInferenceNLPMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiInferenceNLPMessage)
-
-        self.assertIs(messages.MultiInferenceFILMessage.get_impl_class(), messages.MultiInferenceFILMessage)
-        m = messages.MultiInferenceFILMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiInferenceFILMessage)
-
-        self.assertIs(messages.ResponseMemory.get_impl_class(), messages.ResponseMemory)
-        m = messages.ResponseMemory(1)
-        self.assertIsInstance(m, messages.ResponseMemory)
-
-        self.assertIs(messages.ResponseMemoryProbs.get_impl_class(), messages.ResponseMemoryProbs)
-        m = messages.ResponseMemoryProbs(1, cp_array)
-        self.assertIsInstance(m, messages.ResponseMemoryProbs)
-
-        self.assertIs(messages.ResponseMemoryAE.get_impl_class(), messages.ResponseMemoryAE)
-        m = messages.ResponseMemoryAE(1, cp_array)
-        self.assertIsInstance(m, messages.ResponseMemoryAE)
-
-        self.assertIs(messages.MultiResponseMessage.get_impl_class(), messages.MultiResponseMessage)
-        m = messages.MultiResponseMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiResponseMessage)
-
-        self.assertIs(messages.MultiResponseProbsMessage.get_impl_class(), messages.MultiResponseProbsMessage)
-        m = messages.MultiResponseProbsMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiResponseProbsMessage)
-
-        self.assertIs(messages.MultiResponseAEMessage.get_impl_class(), messages.MultiResponseAEMessage)
-        m = messages.MultiResponseAEMessage(None, 0, 1, None, 0, 1, '')
-        self.assertIsInstance(m, messages.MultiResponseAEMessage)
+        self.check_all_messages(False, False)
 
     def test_constructor_no_cpp_env(self):
         """
@@ -166,76 +125,13 @@ class TestMessages(BaseMorpheusTest):
         self.addCleanup(importlib.reload, messages)
         self._save_env_vars()
 
-        os.environ['MORPHEUS_NO_CPP']='1'
+        os.environ['MORPHEUS_NO_CPP'] = '1'
         importlib.reload(messages)
 
         config = Config.get()
         config.use_cpp = True
 
-        self.assertIs(messages.MessageMeta.get_impl_class(), messages.MessageMeta)
-        m = messages.MessageMeta(None)
-        self.assertIsInstance(m, messages.MessageMeta)
-
-        self.assertIs(messages.UserMessageMeta.get_impl_class(), messages.UserMessageMeta)
-        m = messages.UserMessageMeta(None, None)
-        self.assertIsInstance(m, messages.UserMessageMeta)
-
-        self.assertIs(messages.MultiMessage.get_impl_class(), messages.MultiMessage)
-        m = messages.MultiMessage(None, 0, 1)
-        self.assertIsInstance(m, messages.MultiMessage)
-
-        self.assertIs(messages.InferenceMemory.get_impl_class(), messages.InferenceMemory)
-        m = messages.InferenceMemory(1)
-        self.assertIsInstance(m, messages.InferenceMemory)
-
-        cp_array = cp.zeros((1, 2))
-        self.assertIs(messages.InferenceMemoryNLP.get_impl_class(), messages.InferenceMemoryNLP)
-        m = messages.InferenceMemoryNLP(1, cp_array, cp_array, cp_array)
-        self.assertIsInstance(m, messages.InferenceMemoryNLP)
-
-        self.assertIs(messages.InferenceMemoryFIL.get_impl_class(), messages.InferenceMemoryFIL)
-        m = messages.InferenceMemoryFIL(1, cp_array, cp_array)
-        self.assertIsInstance(m, messages.InferenceMemoryFIL)
-
-        self.assertIs(messages.InferenceMemoryAE.get_impl_class(), messages.InferenceMemoryAE)
-        m = messages.InferenceMemoryAE(1, cp_array, cp_array)
-        self.assertIsInstance(m, messages.InferenceMemoryAE)
-
-        self.assertIs(messages.MultiInferenceMessage.get_impl_class(), messages.MultiInferenceMessage)
-        m = messages.MultiInferenceMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiInferenceMessage)
-
-        self.assertIs(messages.MultiInferenceNLPMessage.get_impl_class(), messages.MultiInferenceNLPMessage)
-        m = messages.MultiInferenceNLPMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiInferenceNLPMessage)
-
-        self.assertIs(messages.MultiInferenceFILMessage.get_impl_class(), messages.MultiInferenceFILMessage)
-        m = messages.MultiInferenceFILMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiInferenceFILMessage)
-
-        self.assertIs(messages.ResponseMemory.get_impl_class(), messages.ResponseMemory)
-        m = messages.ResponseMemory(1)
-        self.assertIsInstance(m, messages.ResponseMemory)
-
-        self.assertIs(messages.ResponseMemoryProbs.get_impl_class(), messages.ResponseMemoryProbs)
-        m = messages.ResponseMemoryProbs(1, cp_array)
-        self.assertIsInstance(m, messages.ResponseMemoryProbs)
-
-        self.assertIs(messages.ResponseMemoryAE.get_impl_class(), messages.ResponseMemoryAE)
-        m = messages.ResponseMemoryAE(1, cp_array)
-        self.assertIsInstance(m, messages.ResponseMemoryAE)
-
-        self.assertIs(messages.MultiResponseMessage.get_impl_class(), messages.MultiResponseMessage)
-        m = messages.MultiResponseMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiResponseMessage)
-
-        self.assertIs(messages.MultiResponseProbsMessage.get_impl_class(), messages.MultiResponseProbsMessage)
-        m = messages.MultiResponseProbsMessage(None, 0, 1, None, 0, 1)
-        self.assertIsInstance(m, messages.MultiResponseProbsMessage)
-
-        self.assertIs(messages.MultiResponseAEMessage.get_impl_class(), messages.MultiResponseAEMessage)
-        m = messages.MultiResponseAEMessage(None, 0, 1, None, 0, 1, '')
-        self.assertIsInstance(m, messages.MultiResponseAEMessage)
+        self.check_all_messages(False, True)
 
 
 if __name__ == '__main__':

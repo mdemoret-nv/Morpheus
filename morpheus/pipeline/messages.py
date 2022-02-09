@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import abc
 import dataclasses
 import os
 import typing
+from typing_extensions import Self
 
 import cupy as cp
 import pandas as pd
@@ -24,10 +26,13 @@ import cudf
 from morpheus.config import Config
 import morpheus._lib.messages as neom
 
-NO_CPP = os.environ.get('MORPHEUS_NO_CPP')
+# If set, this disables all CPP class creation
+NO_CPP = os.getenv("MORPHEUS_NO_CPP", 'False').lower() in ('true', '1', 't')
 
 
-class MessageImpl(type):
+class MessageImpl(abc.ABCMeta):
+
+    _cpp_class: typing.Union[type, typing.Callable] = None
     """
     Metaclass to switch between Python & C++ message implementations at construction time.
     Note: some classes don't have a C++ implementation, but do inherit from a class that
@@ -35,32 +40,31 @@ class MessageImpl(type):
     to prevent creating instances of their parent's C++ impl.
     """
     def __new__(cls, classname, bases, classdict, cpp_class=None):
-        result = type.__new__(cls, classname, bases, classdict)
+        result = super().__new__(cls, classname, bases, classdict)
 
-        @classmethod
-        def get_impl_class(kls):
-            if NO_CPP is None and cpp_class is not None and Config.get().use_cpp:
-                return cpp_class
-            return kls
+        # Set the C++ class type into the object to use for creation later if desired
+        result._cpp_class = None if NO_CPP else cpp_class
 
-        result.get_impl_class = get_impl_class
-
-        if NO_CPP is None:
-            def factory_method(kls, *args, **kwargs):
-                if cpp_class is not None and Config.get().use_cpp:
-                    return cpp_class(*args, **kwargs)
-
-                inst = object.__new__(kls)
-                inst.__init__(*args, **kwargs)
-                return inst
-
-            result.__new__ = factory_method
+        # Register the C++ class as an instances of this metaclass to support isinstance(cpp_instance, PythonClass)
+        if (cpp_class is not None):
+            result.register(cpp_class)
 
         return result
 
 
+class MessageBase(metaclass=MessageImpl):
+    def __new__(cls, *args, **kwargs) -> Self:
+
+        # If _cpp_class is set, and use_cpp is enabled, create the C++ instance
+        if (getattr(cls, "_cpp_class", None) is not None and Config.get().use_cpp):
+            return cls._cpp_class(*args, **kwargs)
+
+        # Otherwise, do the default init
+        return super().__new__(cls)
+
+
 @dataclasses.dataclass
-class MessageData:
+class MessageData(MessageBase):
     def __getstate__(self):
         return self.__dict__
 
@@ -69,7 +73,7 @@ class MessageData:
 
 
 @dataclasses.dataclass
-class MessageMeta(metaclass=MessageImpl, cpp_class=neom.MessageMeta):
+class MessageMeta(MessageBase, cpp_class=neom.MessageMeta):
     """
     This is a container class to hold batch deserialized messages metadata.
 
@@ -97,12 +101,12 @@ class MessageMeta(metaclass=MessageImpl, cpp_class=neom.MessageMeta):
 
 
 @dataclasses.dataclass
-class UserMessageMeta(MessageMeta, metaclass=MessageImpl, cpp_class=None):
+class UserMessageMeta(MessageMeta, cpp_class=None):
     user_id: str
 
 
 @dataclasses.dataclass
-class MultiMessage(MessageData, metaclass=MessageImpl, cpp_class=neom.MultiMessage):
+class MultiMessage(MessageData, cpp_class=neom.MultiMessage):
     """
     This class holds data for multiple messages at a time. To avoid copying data for slicing operations, it
     holds a reference to a batched metadata object and stores the offset and count into that batch.
@@ -251,7 +255,7 @@ class MultiMessage(MessageData, metaclass=MessageImpl, cpp_class=neom.MultiMessa
 
 
 @dataclasses.dataclass
-class InferenceMemory(MessageData, metaclass=MessageImpl, cpp_class=neom.InferenceMemory):
+class InferenceMemory(MessageData, cpp_class=neom.InferenceMemory):
     """
     This is a base container class for data that will be used for inference stages. This class is designed to
     hold generic tensor data in cupy arrays.
@@ -557,7 +561,6 @@ class MultiInferenceFILMessage(MultiInferenceMessage, cpp_class=neom.MultiInfere
     A stronger typed version of `MultiInferenceMessage` that is used for FIL workloads. Helps ensure the
     proper inputs are set and eases debugging.
     """
-
     @property
     def input__0(self):
         """
@@ -600,7 +603,7 @@ def set_output(instance: "ResponseMemory", name: str, value):
 
 
 @dataclasses.dataclass
-class ResponseMemory(MessageData, metaclass=MessageImpl, cpp_class=neom.ResponseMemory):
+class ResponseMemory(MessageData, cpp_class=neom.ResponseMemory):
     """
     Output memory block holding the results of inference.
     """
@@ -723,7 +726,6 @@ class MultiResponseProbsMessage(MultiResponseMessage, cpp_class=neom.MultiRespon
     A stronger typed version of `MultiResponseMessage` that is used for inference workloads that return a probability
     array. Helps ensure the proper outputs are set and eases debugging.
     """
-
     @property
     def probs(self):
         """
