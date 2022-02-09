@@ -23,8 +23,6 @@ import cupy as cp
 
 from morpheus.config import Config
 
-Config.get().use_cpp = False
-
 from morpheus.pipeline.inference import inference_stage
 from morpheus.pipeline.messages import ResponseMemoryProbs
 from morpheus.utils.producer_consumer_queue import Closed
@@ -32,7 +30,7 @@ from morpheus.utils.producer_consumer_queue import ProducerConsumerQueue
 from tests import BaseMorpheusTest
 
 
-class TestIW(inference_stage.InferenceWorker):
+class IW(inference_stage.InferenceWorker):
     def calc_output_dims(self, _):
         # Intentionally calling the abc empty method for coverage
         super().calc_output_dims(_)
@@ -43,10 +41,20 @@ class InferenceStage(inference_stage.InferenceStage):
     def _get_inference_worker(self, pq):
         # Intentionally calling the abc empty method for coverage
         super()._get_inference_worker(pq)
-        return TestIW(pq)
+        return IW(pq)
 
 
 class TestInferenceStage(BaseMorpheusTest):
+    def _mk_message(self, count=1, mess_count=1, offset=0, mess_offset=0):
+        m = mock.MagicMock()
+        m.count = count
+        m.offset = offset
+        m.mess_offset = mess_offset
+        m.mess_count = mess_count
+        m.probs = cp.array([[0.1, 0.5, 0.8], [0.2, 0.6, 0.9]])
+        m.get_input.return_value = cp.array([[0, 1, 2], [0, 1, 2]])
+        return m
+
     def test_constructor(self):
         config = Config.get()
         config.feature_length = 128
@@ -88,7 +96,7 @@ class TestInferenceStage(BaseMorpheusTest):
         mock_input_stream = mock.MagicMock()
 
         mock_init = mock.MagicMock()
-        TestIW.init = mock_init
+        IW.init = mock_init
 
         config = Config.get()
         config.num_threads = 17
@@ -117,8 +125,8 @@ class TestInferenceStage(BaseMorpheusTest):
         mock_input_stream = mock.MagicMock()
 
         mock_init = mock.MagicMock()
-        TestIW.init = mock_init
-        TestIW.process = mock.MagicMock()
+        IW.init = mock_init
+        IW.process = mock.MagicMock()
 
         config = Config.get()
         config.use_cpp = False
@@ -136,13 +144,7 @@ class TestInferenceStage(BaseMorpheusTest):
         mock_ops.map.assert_called_once()
         on_next = mock_ops.map.call_args[0][0]
 
-        mock_message = mock.MagicMock()
-        mock_message.probs = cp.array([[0.1, 0.5, 0.8], [0.2, 0.6, 0.9]])
-        mock_message.count = 1
-        mock_message.mess_offset = 0
-        mock_message.mess_count = 1
-        mock_message.offset = 0
-        mock_message.get_input.return_value = cp.array([[0, 1, 2], [0, 1, 2]])
+        mock_message = self._mk_message()
 
         mock_slice = mock.MagicMock()
         mock_slice.mess_count = 1
@@ -158,8 +160,8 @@ class TestInferenceStage(BaseMorpheusTest):
         mock_future.result.assert_called_once()
         mock_future.set_result.assert_not_called()
 
-        TestIW.process.assert_called_once()
-        set_output_fut = TestIW.process.call_args[0][1]
+        IW.process.assert_called_once()
+        set_output_fut = IW.process.call_args[0][1]
         set_output_fut(ResponseMemoryProbs(count=1, probs=cp.zeros((1, 2))))
         mock_future.set_result.assert_called_once()
 
@@ -256,6 +258,80 @@ class TestInferenceStage(BaseMorpheusTest):
         mock_gather.assert_called_once()
 
         self.assertEqual(inf_stage._inf_queue.qsize(), 4)
+
+    def test_convert_response(self):
+        # The C++ impl of MultiResponseProbsMessage doesn't like our mocked messages
+        Config.get().use_cpp = False
+        mm1 = self._mk_message()
+        mm2 = self._mk_message(mess_offset=1)
+
+        out_msg1 = self._mk_message()
+        out_msg1.probs = cp.array([[0.1, 0.5, 0.8]])
+
+        out_msg2 = self._mk_message(mess_offset=1)
+        out_msg2.probs = cp.array([[0.1, 0.5, 0.8]])
+
+        resp = inference_stage.InferenceStage._convert_response(([mm1, mm2], [out_msg1, out_msg2]))
+        self.assertEqual(resp.meta, mm1.meta)
+        self.assertEqual(resp.mess_offset, 0)
+        self.assertEqual(resp.mess_count, 2)
+        self.assertIsInstance(resp.memory, ResponseMemoryProbs.get_impl_class())
+        self.assertEqual(resp.offset, 0)
+        self.assertEqual(resp.count, 2)
+        self.assertEqual(resp.memory.probs.tolist(), [[0.1, 0.5, 0.8], [0,  0,  0]])
+
+        mm2.count = 2
+        out_msg2.probs = cp.array([[0.1, 0.5, 0.8],
+                                   [4.5, 6.7, 8.9]])
+        mm2.seq_ids = cp.array([[0], [1]])
+        out_msg2.count = 2
+        resp = inference_stage.InferenceStage._convert_response(([mm1, mm2], [out_msg1, out_msg2]))
+        self.assertEqual(resp.meta, mm1.meta)
+        self.assertEqual(resp.mess_offset, 0)
+        self.assertEqual(resp.mess_count, 2)
+        self.assertIsInstance(resp.memory, ResponseMemoryProbs.get_impl_class())
+        self.assertEqual(resp.offset, 0)
+        self.assertEqual(resp.count, 2)
+        self.assertEqual(resp.memory.probs.tolist(), [[0.1, 0.5, 0.8], [4.5, 6.7, 8.9]])
+
+    def test_convert_response_errors(self):
+        # Length of input messages doesn't match length of output messages
+        self.assertRaises(AssertionError,
+            inference_stage.InferenceStage._convert_response,
+            ([1,2,3], [1, 2]))
+
+        # Message offst of the second message doesn't line up offset+count of the first
+        mm1 = self._mk_message()
+        mm2 = self._mk_message(mess_offset = 12)
+
+        out_msg1 = self._mk_message()
+        out_msg1.probs = cp.array([[0.1, 0.5, 0.8]])
+
+        out_msg2 = self._mk_message(mess_offset=1)
+        out_msg2.probs = cp.array([[0.1, 0.5, 0.8]])
+
+        self.assertRaises(AssertionError,
+            inference_stage.InferenceStage._convert_response,
+            ([mm1, mm2], [out_msg1, out_msg2]))
+
+        # mess_coutn and count don't match for mm2, and mm2.count != out_msg2.count
+        mm2.mess_offset = 1
+        mm2.count = 2
+
+        self.assertRaises(AssertionError,
+            inference_stage.InferenceStage._convert_response,
+            ([mm1, mm2], [out_msg1, out_msg2]))
+
+        # saved_count != total_mess_count
+        # Unlike the other asserts that can be triggered due to bad input data
+        # This one can only be triggers by a bug inside the method
+        mm2 = self._mk_message(count=mock.MagicMock(), mess_count=mock.MagicMock())
+        mm2.count.side_effect = [2, 1]
+        mm2.mess_count.side_effect = [2, 1, 1]
+
+        self.assertRaises(AssertionError,
+            inference_stage.InferenceStage._convert_response,
+            ([mm1, mm2], [out_msg1, out_msg2]))
 
 
 if __name__ == '__main__':
