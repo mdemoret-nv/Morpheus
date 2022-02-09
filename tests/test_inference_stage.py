@@ -22,11 +22,9 @@ from unittest import mock
 import cupy as cp
 
 from morpheus.config import Config
-
 from morpheus.pipeline.inference import inference_stage
+from morpheus.pipeline.messages import ResponseMemory
 from morpheus.pipeline.messages import ResponseMemoryProbs
-from morpheus.utils.producer_consumer_queue import Closed
-from morpheus.utils.producer_consumer_queue import ProducerConsumerQueue
 from tests import BaseMorpheusTest
 
 
@@ -333,6 +331,41 @@ class TestInferenceStage(BaseMorpheusTest):
             inference_stage.InferenceStage._convert_response,
             ([mm1, mm2], [out_msg1, out_msg2]))
 
+    def test_convert_one_response(self):
+        Config.get().use_cpp = False
+        # Test first branch where `inf.mess_count == inf.count`
+        mem = ResponseMemoryProbs(1, probs=cp.zeros((1, 3)))
+
+        inf = self._mk_message()
+        res = ResponseMemoryProbs(count=1, probs=cp.array([[1, 2 ,3]]))
+
+        mpm = inference_stage.InferenceStage._convert_one_response(mem, inf, res)
+        self.assertEqual(mpm.meta, inf.meta)
+        self.assertEqual(mpm.mess_offset, 0)
+        self.assertEqual(mpm.mess_count, 1)
+        self.assertEqual(mpm.memory, mem)
+        self.assertEqual(mpm.offset, 0)
+        self.assertEqual(mpm.count, 1)
+        self.assertEqual(mem.get_output('probs').tolist(), [[1.0, 2.0, 3.0]])
+
+        # Test for the second branch
+        inf.mess_count = 2
+        inf.seq_ids = cp.array([[0], [1]])
+        res = ResponseMemoryProbs(count=1, probs=cp.array([[0, 0.6, 0.7], [5.6, 4.4, 9.2]]))
+
+        mem = ResponseMemoryProbs(1, probs=cp.array([[0.1, 0.5, 0.8], [4.5, 6.7, 8.9]]))
+        mpm = inference_stage.InferenceStage._convert_one_response(mem, inf, res)
+        self.assertEqual(mem.get_output('probs').tolist(), [[0.1, 0.6, 0.8], [5.6, 6.7, 9.2]])
+
+
+
+    def test_convert_one_response_error(self):
+        mem = ResponseMemoryProbs(1, probs=cp.zeros((1, 3)))
+        inf = self._mk_message(mess_count=2)
+        res = self._mk_message(count=2)
+
+        self.assertRaises(AssertionError,
+            inference_stage.InferenceStage._convert_one_response, mem, inf, res)
 
 if __name__ == '__main__':
     unittest.main()
