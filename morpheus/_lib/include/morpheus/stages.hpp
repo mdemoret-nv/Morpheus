@@ -929,6 +929,68 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
     float m_threshold;
 };
 
+class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
+{
+  public:
+    using base_t = pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
+    using base_t::operator_fn_t;
+    using base_t::reader_type_t;
+    using base_t::writer_type_t;
 
+    AddClassificationsStage(const neo::Segment& parent, const std::string& name, float threshold, std::size_t num_class_labels, std::map<std::size_t, std::string> idx2label = {}) :
+      neo::SegmentObject(parent, name),
+      PythonNode(parent, name, build_operator()),
+      m_threshold(threshold),
+      m_num_class_labels(num_class_labels),
+      m_idx2label(std::move(idx2label))
+    {CHECK(m_idx2label.size() <= m_num_class_labels) << "idx2label should represent a subset of the class_labels";}
+
+  private:
+    operator_fn_t build_operator()
+    {
+        return [this](neo::Observable<reader_type_t>& input, neo::Subscriber<writer_type_t>& output) {
+            return input.subscribe(neo::make_observer<reader_type_t>(
+                [this, &output](reader_type_t&& x) {
+                    const auto& probs = x->get_probs();
+                    const auto& shape = probs.get_shape();
+
+                    CHECK(shape.size() > 1 && shape[1] == m_num_class_labels)
+                        << "Label count does not match output of model. Label count: " << m_num_class_labels
+                        << ", Model output: " << shape[1];
+
+                    CHECK(shape.size() == 2 && shape[1] == 1) << "C++ impl of the AddClassificationsStage currently only supports single dimensional arrays";
+
+                    std::vector<float> values(static_cast<std::size_t>(probs.count()));
+                    cudaMemcpy(values.data(), probs.data(),  probs.bytes(), cudaMemcpyDeviceToHost);
+
+                    // using size() as our marker for undefined
+                    std::size_t slice_start = values.size();
+                    for (std::size_t i=0; i < values.size(); ++i) {
+                        if (bool above_threshold = values[i] > m_threshold;
+                            above_threshold && slice_start == values.size()) {
+
+                            slice_start = i;
+                        } else if (!above_threshold && slice_start != values.size()) {
+                            //output.on_next(x->get_slice(slice_start, i));
+                            slice_start = values.size();
+                        }
+                    }
+
+                    if (slice_start != values.size()) {
+                        // Last elem was above the threshold
+                        //output.on_next(x->get_slice(slice_start, values.size()));
+                    }
+
+                    output.on_next(x);
+                },
+                [&](std::exception_ptr error_ptr) { output.on_error(error_ptr); },
+                [&]() { output.on_completed(); }));
+        };
+    }
+
+    float m_threshold;
+    std::size_t m_num_class_labels;
+    std::map<std::size_t, std::string> m_idx2label;
+};
 
 }  // namespace morpheus
