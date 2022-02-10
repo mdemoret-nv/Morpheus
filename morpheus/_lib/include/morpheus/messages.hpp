@@ -562,6 +562,13 @@ class MultiResponseProbsMessage : public MultiResponseMessage
       MultiResponseMessage(meta, mess_offset, mess_count, memory, offset, count)
     {}
 
+    std::shared_ptr<MultiResponseProbsMessage> get_slice(size_t start, size_t stop) const
+    {
+        // This can only cast down
+        return std::static_pointer_cast<MultiResponseProbsMessage>(this->internal_get_slice(start, stop));
+    }
+
+
     OUTPUT_PROP(probs)
 };
 }  // namespace morpheus

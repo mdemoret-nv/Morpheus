@@ -45,7 +45,7 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         self.assertEqual(fds._threshold, 0.2)
 
 
-    def test_filter(self):
+    def test_filter_no_cpp(self):
         config = Config.get()
         config.use_cpp = False
         fds = FilterDetectionsStage(config, threshold=0.5)
@@ -104,18 +104,27 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         self.assertEqual(output_list[1].mess_offset, 12)
         self.assertEqual(output_list[1].mess_count, 1)
 
-    def test_build_single(self):
+    def test_build_single_no_cpp(self):
         mock_stream = mock.MagicMock()
         mock_segment = mock.MagicMock()
         mock_segment.make_node.return_value = mock_stream
         mock_input = mock.MagicMock()
 
         config = Config.get()
+        config.use_cpp = False
         fds = FilterDetectionsStage(config)
         fds._build_single(mock_segment, mock_input)
 
         mock_segment.make_node_full.assert_called_once()
         mock_segment.make_edge.assert_called_once()
+
+    def test_build_single_cpp(self):
+
+        config = Config.get()
+        config.use_cpp = True
+        fds = FilterDetectionsStage(config)
+        #fds._build_single(mock_segment, mock_input)
+        self.assertTrue(False)
 
 
 if __name__ == '__main__':

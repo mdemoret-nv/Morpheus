@@ -23,6 +23,7 @@ from tqdm import tqdm
 
 import cudf
 
+import morpheus._lib.stages as neos
 from morpheus.config import Config
 from morpheus.pipeline import Stage
 from morpheus.pipeline.messages import MultiMessage
@@ -405,6 +406,11 @@ class FilterDetectionsStage(SinglePortStage):
         """
         return (MultiResponseProbsMessage, )
 
+    @classmethod
+    def supports_cpp_node(cls):
+        # Enable support by default
+        return True
+
     def filter(self, x: MultiResponseProbsMessage) -> typing.List[MultiResponseProbsMessage]:
         """
         This function uses a threshold value to filter the messages.
@@ -457,9 +463,12 @@ class FilterDetectionsStage(SinglePortStage):
 
             input.pipe(ops.map(self.filter), ops.flatten()).subscribe(output)
 
-        flattened = seg.make_node_full(self.unique_name, flatten_fn)
-        seg.make_edge(input_stream[0], flattened)
-        stream = flattened
+        if Config.get().use_cpp:
+            stream = neos.FilterDetectionsStage(seg, self.unique_name, self._threshold)
+        else:
+            stream = seg.make_node_full(self.unique_name, flatten_fn)
+
+        seg.make_edge(input_stream[0], stream)
 
         return stream, MultiResponseProbsMessage
 

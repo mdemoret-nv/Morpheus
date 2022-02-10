@@ -172,6 +172,19 @@ PYBIND11_MODULE(stages, m)
              py::arg("needs_logits"),
              py::arg("inout_mapping") = py::dict());
 
+    py::class_<FilterDetectionsStage, neo::SegmentObject, std::shared_ptr<FilterDetectionsStage>>(
+        m, "FilterDetectionsStage", py::multiple_inheritance())
+        .def(py::init<>([](neo::Segment& parent, const std::string& name, float threshold) {
+                 auto stage = std::make_shared<FilterDetectionsStage>(parent, name, threshold);
+
+                 parent.register_node<FilterDetectionsStage::sink_type_t, FilterDetectionsStage::source_type_t>(stage);
+
+                 return stage;
+             }),
+             py::arg("parent"),
+             py::arg("name"),
+             py::arg("threshold"));
+
 #ifdef VERSION_INFO
     m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);
 #else

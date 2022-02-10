@@ -875,4 +875,60 @@ class InferenceClientStage
     int m_max_batch_size{-1};
 };
 
+class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
+{
+  public:
+    using base_t = pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
+    using base_t::operator_fn_t;
+    using base_t::reader_type_t;
+    using base_t::writer_type_t;
+
+    FilterDetectionsStage(const neo::Segment& parent, const std::string& name, float threshold) :
+      neo::SegmentObject(parent, name),
+      PythonNode(parent, name, build_operator()),
+      m_threshold(threshold)
+    {}
+
+  private:
+    operator_fn_t build_operator()
+    {
+        return [this](neo::Observable<reader_type_t>& input, neo::Subscriber<writer_type_t>& output) {
+            return input.subscribe(neo::make_observer<reader_type_t>(
+                [this, &output](reader_type_t&& x) {
+                    const auto& probs = x->get_probs();
+                    const auto& shape = probs.get_shape();
+
+                    CHECK(probs.rank() == 1 || (shape.size() == 2 && shape[1] == 1)) << "C++ impl of the FilterDetectionsStage currently only supports single dimensional arrays";
+
+                    std::vector<float> values(static_cast<std::size_t>(probs.count()));
+                    cudaMemcpy(values.data(), probs.data(),  probs.bytes(), cudaMemcpyDeviceToHost);
+
+                    // using size() as our marker for undefined
+                    std::size_t slice_start = values.size();
+                    for (std::size_t i=0; i < values.size(); ++i) {
+                        if (bool above_threshold = values[i] > m_threshold;
+                            above_threshold && slice_start == values.size()) {
+
+                            slice_start = i;
+                        } else if (!above_threshold && slice_start != values.size()) {
+                            output.on_next(x->get_slice(slice_start, i));
+                            slice_start = values.size();
+                        }
+                    }
+
+                    if (slice_start != values.size()) {
+                        // Last elem was above the threshold
+                        output.on_next(x->get_slice(slice_start, values.size()));
+                    }
+                },
+                [&](std::exception_ptr error_ptr) { output.on_error(error_ptr); },
+                [&]() { output.on_completed(); }));
+        };
+    }
+
+    float m_threshold;
+};
+
+
+
 }  // namespace morpheus
