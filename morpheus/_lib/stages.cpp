@@ -185,6 +185,22 @@ PYBIND11_MODULE(stages, m)
              py::arg("name"),
              py::arg("threshold"));
 
+    py::class_<AddClassificationsStage, neo::SegmentObject, std::shared_ptr<AddClassificationsStage>>(
+        m, "AddClassificationsStage", py::multiple_inheritance())
+        .def(py::init<>([](neo::Segment& parent, const std::string& name, float threshold, std::size_t num_class_labels, std::map<std::size_t, std::string> idx2label) {
+                 auto stage = std::make_shared<AddClassificationsStage>(parent, name, threshold, num_class_labels, idx2label);
+
+                 parent.register_node<AddClassificationsStage::sink_type_t, AddClassificationsStage::source_type_t>(stage);
+
+                 return stage;
+             }),
+             py::arg("parent"),
+             py::arg("name"),
+             py::arg("threshold"),
+             py::arg("num_class_labels"),
+             py::arg("idx2label"));
+
+
 #ifdef VERSION_INFO
     m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);
 #else

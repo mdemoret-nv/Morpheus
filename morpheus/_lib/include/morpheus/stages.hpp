@@ -901,7 +901,8 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
                     CHECK(probs.rank() == 1 || (shape.size() == 2 && shape[1] == 1)) << "C++ impl of the FilterDetectionsStage currently only supports single dimensional arrays";
 
                     std::vector<float> values(static_cast<std::size_t>(probs.count()));
-                    cudaMemcpy(values.data(), probs.data(),  probs.bytes(), cudaMemcpyDeviceToHost);
+
+                    cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
 
                     // using size() as our marker for undefined
                     std::size_t slice_start = values.size();
@@ -937,7 +938,7 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
     using base_t::reader_type_t;
     using base_t::writer_type_t;
 
-    AddClassificationsStage(const neo::Segment& parent, const std::string& name, float threshold, std::size_t num_class_labels, std::map<std::size_t, std::string> idx2label = {}) :
+    AddClassificationsStage(const neo::Segment& parent, const std::string& name, float threshold, std::size_t num_class_labels, std::map<std::size_t, std::string> idx2label) :
       neo::SegmentObject(parent, name),
       PythonNode(parent, name, build_operator()),
       m_threshold(threshold),
@@ -961,25 +962,21 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                     CHECK(shape.size() == 2 && shape[1] == 1) << "C++ impl of the AddClassificationsStage currently only supports single dimensional arrays";
 
                     std::vector<float> values(static_cast<std::size_t>(probs.count()));
-                    cudaMemcpy(values.data(), probs.data(),  probs.bytes(), cudaMemcpyDeviceToHost);
+                    cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
 
-                    // using size() as our marker for undefined
-                    std::size_t slice_start = values.size();
+                    std::vector<bool> probs_np(values.size());
                     for (std::size_t i=0; i < values.size(); ++i) {
-                        if (bool above_threshold = values[i] > m_threshold;
-                            above_threshold && slice_start == values.size()) {
-
-                            slice_start = i;
-                        } else if (!above_threshold && slice_start != values.size()) {
-                            //output.on_next(x->get_slice(slice_start, i));
-                            slice_start = values.size();
-                        }
+                        probs_np[i] = values[i] > m_threshold;
                     }
 
-                    if (slice_start != values.size()) {
-                        // Last elem was above the threshold
-                        //output.on_next(x->get_slice(slice_start, values.size()));
+                    {
+                        // TODO: Figure out a way to do this without going through python
+                        py::gil_scoped_acquire gil;
+                        auto df = x->meta->get_py_table();
+                        auto index_slice = py::slice(py::int_(x->mess_offset), py::int_(x->mess_offset + x->mess_count), py::none());
+                        df.attr("loc")[py::make_tuple(df.attr("index")[index_slice], m_idx2label[0])] = probs_np;
                     }
+
 
                     output.on_next(x);
                 },
