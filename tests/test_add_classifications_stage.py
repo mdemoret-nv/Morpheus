@@ -21,9 +21,6 @@ from unittest import mock
 import cupy as cp
 
 from morpheus.config import Config
-
-Config.get().use_cpp = False
-
 from morpheus.pipeline.general_stages import AddClassificationsStage
 from tests import BaseMorpheusTest
 
@@ -71,13 +68,14 @@ class TestAddClassificationsStage(BaseMorpheusTest):
         wrong_shape.probs = cp.array([[0.1, 0.5], [0.2, 0.6]])
         self.assertRaises(RuntimeError, ac._add_labels, wrong_shape)
 
-    def test_build_single(self):
+    def test_build_single_no_cpp(self):
         mock_stream = mock.MagicMock()
         mock_segment = mock.MagicMock()
         mock_segment.make_node.return_value = mock_stream
         mock_input = mock.MagicMock()
 
         config = Config.get()
+        config.use_cpp = False
         config.class_labels = ['frogs', 'lizards', 'toads']
 
         ac = AddClassificationsStage(config)
@@ -85,6 +83,9 @@ class TestAddClassificationsStage(BaseMorpheusTest):
 
         mock_segment.make_node.assert_called_once()
         mock_segment.make_edge.assert_called_once()
+
+    def test_build_single_cpp(self):
+        self.assertTrue(False)
 
 
 if __name__ == '__main__':

@@ -22,9 +22,6 @@ import cupy as cp
 from torch import threshold
 
 from morpheus.config import Config
-
-Config.get().use_cpp = False
-
 from morpheus.pipeline.general_stages import FilterDetectionsStage
 from tests import BaseMorpheusTest
 
