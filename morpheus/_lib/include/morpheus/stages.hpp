@@ -32,6 +32,7 @@
 #include <http_client.h>
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
+#include <pybind11/stl.h>
 #include <thrust/iterator/constant_iterator.h>
 #include <nlohmann/json.hpp>
 
@@ -901,7 +902,6 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
                     CHECK(probs.rank() == 1 || (shape.size() == 2 && shape[1] == 1)) << "C++ impl of the FilterDetectionsStage currently only supports single dimensional arrays";
 
                     std::vector<float> values(static_cast<std::size_t>(probs.count()));
-
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
 
                     // using size() as our marker for undefined
@@ -969,14 +969,12 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                         probs_np[i] = values[i] > m_threshold;
                     }
 
+
                     {
                         // TODO: Figure out a way to do this without going through python
                         py::gil_scoped_acquire gil;
-                        auto df = x->meta->get_py_table();
-                        auto index_slice = py::slice(py::int_(x->mess_offset), py::int_(x->mess_offset + x->mess_count), py::none());
-                        df.attr("loc")[py::make_tuple(df.attr("index")[index_slice], m_idx2label[0])] = probs_np;
+                        x->set_meta(m_idx2label[0], py::cast(probs_np));
                     }
-
 
                     output.on_next(x);
                 },
@@ -989,5 +987,56 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
     std::size_t m_num_class_labels;
     std::map<std::size_t, std::string> m_idx2label;
 };
+
+class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
+{
+  public:
+    using base_t = pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
+    using base_t::operator_fn_t;
+    using base_t::reader_type_t;
+    using base_t::writer_type_t;
+
+    AddScoresStage(const neo::Segment& parent, const std::string& name, std::size_t num_class_labels, std::map<std::size_t, std::string> idx2label) :
+      neo::SegmentObject(parent, name),
+      PythonNode(parent, name, build_operator()),
+      m_num_class_labels(num_class_labels),
+      m_idx2label(std::move(idx2label))
+    {CHECK(m_idx2label.size() <= m_num_class_labels) << "idx2label should represent a subset of the class_labels";}
+
+  private:
+    operator_fn_t build_operator()
+    {
+        return [this](neo::Observable<reader_type_t>& input, neo::Subscriber<writer_type_t>& output) {
+            return input.subscribe(neo::make_observer<reader_type_t>(
+                [this, &output](reader_type_t&& x) {
+                    const auto& probs = x->get_probs();
+                    const auto& shape = probs.get_shape();
+
+                    CHECK(shape.size() > 1 && shape[1] == m_num_class_labels)
+                        << "Label count does not match output of model. Label count: " << m_num_class_labels
+                        << ", Model output: " << shape[1];
+
+                    CHECK(shape.size() == 2 && shape[1] == 1) << "C++ impl of the AddScoresStage currently only supports single dimensional arrays";
+
+                    std::vector<float> values(static_cast<std::size_t>(probs.count()));
+                    cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
+
+                    {
+                        // TODO: Figure out a way to do this without going through python
+                        py::gil_scoped_acquire gil;
+                        x->set_meta(m_idx2label[0], py::cast(values));
+                    }
+
+                    output.on_next(x);
+                },
+                [&](std::exception_ptr error_ptr) { output.on_error(error_ptr); },
+                [&]() { output.on_completed(); }));
+        };
+    }
+
+    std::size_t m_num_class_labels;
+    std::map<std::size_t, std::string> m_idx2label;
+};
+
 
 }  // namespace morpheus

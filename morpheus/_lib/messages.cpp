@@ -22,6 +22,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <sstream>
 #include <vector>
 
 #include <cudf/io/csv.hpp>
@@ -207,15 +208,17 @@ PYBIND11_MODULE(messages, m)
         .def(
             "set_meta",
             [](MultiMessage& self, py::object columns, py::object value) {
-                // Mimic this python code
-                // self.meta.df.loc[self.meta.df.index[self.mess_offset:self.mess_offset + self.mess_count], columns] =
-                // value
-                auto df = self.meta->get_py_table();
-
-                auto index_slice =
-                    py::slice(py::int_(self.mess_offset), py::int_(self.mess_offset + self.mess_count), py::none());
-
-                df.attr("loc")[py::make_tuple(df.attr("index")[index_slice], columns)] = value;
+                if (py::isinstance<py::list>(columns) || py::isinstance<py::tuple>(columns)) {
+                    auto columns_vec = columns.cast<std::vector<std::string>>();
+                    self.set_meta(columns_vec, value);
+                } else if (py::isinstance<py::str>(columns)) {
+                    auto column = columns.cast<std::string>();
+                    self.set_meta(column, value);
+                } else {
+                    std::stringstream msg;
+                    msg << "Unsupported python object (expected str or a list/tuple of str): " << py::str(columns);
+                    throw std::runtime_error(msg.str());
+                }
             },
             py::return_value_policy::move)
         .def(

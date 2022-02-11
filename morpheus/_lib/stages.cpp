@@ -200,6 +200,19 @@ PYBIND11_MODULE(stages, m)
              py::arg("num_class_labels"),
              py::arg("idx2label"));
 
+    py::class_<AddScoresStage, neo::SegmentObject, std::shared_ptr<AddScoresStage>>(
+        m, "AddScoresStage", py::multiple_inheritance())
+        .def(py::init<>([](neo::Segment& parent, const std::string& name, std::size_t num_class_labels, std::map<std::size_t, std::string> idx2label) {
+                 auto stage = std::make_shared<AddScoresStage>(parent, name, num_class_labels, idx2label);
+
+                 parent.register_node<AddScoresStage::sink_type_t, AddScoresStage::source_type_t>(stage);
+
+                 return stage;
+             }),
+             py::arg("parent"),
+             py::arg("name"),
+             py::arg("num_class_labels"),
+             py::arg("idx2label"));
 
 #ifdef VERSION_INFO
     m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);

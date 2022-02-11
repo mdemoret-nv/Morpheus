@@ -286,6 +286,22 @@ class MultiMessage
         return sliced_info;
     }
 
+    void set_meta(const std::string& col_name, py::object value)
+    {
+        set_meta(std::vector<std::string>{col_name}, value);
+    }
+
+    void set_meta(const std::vector<std::string>& column_names, py::object value)
+    {
+        // Mimic this python code
+        // self.meta.df.loc[self.meta.df.index[self.mess_offset:self.mess_offset + self.mess_count], columns] =
+        // value
+        py::gil_scoped_acquire gil;
+        auto df = meta->get_py_table();
+        auto index_slice = py::slice(py::int_(mess_offset), py::int_(mess_offset + mess_count), py::none());
+        df.attr("loc")[py::make_tuple(df.attr("index")[index_slice], column_names)] = value;
+    }
+
     // cudf::column_view set_meta(const std::string& col_name)
     // {
     //     auto table_view = this->get_meta(std::vector<std::string>{col_name});
