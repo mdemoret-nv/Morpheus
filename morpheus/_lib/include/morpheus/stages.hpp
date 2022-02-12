@@ -961,29 +961,25 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
 
                     //CHECK(shape.size() == 2 && shape[1] == 1) << "C++ impl of the AddClassificationsStage currently only supports single dimensional arrays";
 
-                    const std::size_t num_columns = static_cast<std::size_t>(shape[0]);
-                    const std::size_t num_rows = static_cast<std::size_t>(shape[1]);
-                    const std::size_t row_size_bytes = probs.dtype_size() * num_columns;
+                    const std::size_t num_columns = static_cast<std::size_t>(shape[1]);
+                    const std::size_t num_rows = static_cast<std::size_t>(shape[0]);
 
                     std::vector<float> values(probs.count());
-                    std::vector<bool> probs_np(num_columns);
-                    std::cout << "Is compact=" << probs.is_compact() << std::endl
-                              << "Shape=" << num_columns <<"x" << num_rows << std::endl
-                              << "Count=" << probs.count() << std::endl
-                              << "Bytes=" << probs.bytes()  << std::endl
-                              << "Row size=" << row_size_bytes << std::endl;
-
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
-                    for (std::size_t row=0; row < num_rows; ++row) {
-                        const std::size_t = row * num_columns;
-                        for (std::size_t column=0; column < num_columns; ++column) {
-                            probs_np[column] = values[row_offset + column] > m_threshold;
+
+                    std::vector<bool> probs_np(num_rows);
+                    for (const auto& p : m_idx2label)
+                    {
+                        std::size_t column = p.first;
+                        for (std::size_t row=0; row < num_rows; ++row)
+                        {
+                            probs_np[row] = values[column + row*num_columns] > m_threshold;
                         }
 
                         {
                             // TODO: Figure out a way to do this without going through python
                             py::gil_scoped_acquire gil;
-                            x->set_meta(m_idx2label[row], py::cast(probs_np));
+                            x->set_meta(p.second, py::cast(probs_np));
                         }
                     }
 
