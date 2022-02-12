@@ -955,25 +955,36 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                     const auto& probs = x->get_probs();
                     const auto& shape = probs.get_shape();
 
-                    CHECK(shape.size() > 1 && shape[1] == m_num_class_labels)
+                    CHECK(shape.size() == 2 && shape[1] == m_num_class_labels)
                         << "Label count does not match output of model. Label count: " << m_num_class_labels
                         << ", Model output: " << shape[1];
 
-                    CHECK(shape.size() == 2 && shape[1] == 1) << "C++ impl of the AddClassificationsStage currently only supports single dimensional arrays";
+                    //CHECK(shape.size() == 2 && shape[1] == 1) << "C++ impl of the AddClassificationsStage currently only supports single dimensional arrays";
 
-                    std::vector<float> values(static_cast<std::size_t>(probs.count()));
+                    const std::size_t num_columns = static_cast<std::size_t>(shape[0]);
+                    const std::size_t num_rows = static_cast<std::size_t>(shape[1]);
+                    const std::size_t row_size_bytes = probs.dtype_size() * num_columns;
+
+                    std::vector<float> values(probs.count());
+                    std::vector<bool> probs_np(num_columns);
+                    std::cout << "Is compact=" << probs.is_compact() << std::endl
+                              << "Shape=" << num_columns <<"x" << num_rows << std::endl
+                              << "Count=" << probs.count() << std::endl
+                              << "Bytes=" << probs.bytes()  << std::endl
+                              << "Row size=" << row_size_bytes << std::endl;
+
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
+                    for (std::size_t row=0; row < num_rows; ++row) {
+                        const std::size_t = row * num_columns;
+                        for (std::size_t column=0; column < num_columns; ++column) {
+                            probs_np[column] = values[row_offset + column] > m_threshold;
+                        }
 
-                    std::vector<bool> probs_np(values.size());
-                    for (std::size_t i=0; i < values.size(); ++i) {
-                        probs_np[i] = values[i] > m_threshold;
-                    }
-
-
-                    {
-                        // TODO: Figure out a way to do this without going through python
-                        py::gil_scoped_acquire gil;
-                        x->set_meta(m_idx2label[0], py::cast(probs_np));
+                        {
+                            // TODO: Figure out a way to do this without going through python
+                            py::gil_scoped_acquire gil;
+                            x->set_meta(m_idx2label[row], py::cast(probs_np));
+                        }
                     }
 
                     output.on_next(x);
