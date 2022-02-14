@@ -901,7 +901,7 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
 
                     CHECK(probs.rank() == 1 || (shape.size() == 2 && shape[1] == 1)) << "C++ impl of the FilterDetectionsStage currently only supports single dimensional arrays";
 
-                    std::vector<float> values(static_cast<std::size_t>(probs.count()));
+                    std::vector<float> values(probs.count());
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
 
                     // using size() as our marker for undefined
@@ -959,10 +959,8 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                         << "Label count does not match output of model. Label count: " << m_num_class_labels
                         << ", Model output: " << shape[1];
 
-                    //CHECK(shape.size() == 2 && shape[1] == 1) << "C++ impl of the AddClassificationsStage currently only supports single dimensional arrays";
-
-                    const std::size_t num_columns = static_cast<std::size_t>(shape[1]);
-                    const std::size_t num_rows = static_cast<std::size_t>(shape[0]);
+                    const std::size_t num_columns = shape[1];
+                    const std::size_t num_rows = shape[0];
 
                     std::vector<float> values(probs.count());
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
@@ -977,7 +975,6 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                         }
 
                         {
-                            // TODO: Figure out a way to do this without going through python
                             py::gil_scoped_acquire gil;
                             x->set_meta(p.second, py::cast(probs_np));
                         }
@@ -1019,21 +1016,30 @@ class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponsePro
                     const auto& probs = x->get_probs();
                     const auto& shape = probs.get_shape();
 
-                    CHECK(shape.size() > 1 && shape[1] == m_num_class_labels)
+                    CHECK(shape.size() == 2 && shape[1] == m_num_class_labels)
                         << "Label count does not match output of model. Label count: " << m_num_class_labels
                         << ", Model output: " << shape[1];
 
-                    CHECK(shape.size() == 2 && shape[1] == 1) << "C++ impl of the AddScoresStage currently only supports single dimensional arrays";
+                    const std::size_t num_columns = shape[1];
+                    const std::size_t num_rows = shape[0];
 
-                    std::vector<float> values(static_cast<std::size_t>(probs.count()));
+                    std::vector<float> values(probs.count());
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
 
+                    std::vector<float> probs_np(num_rows);
+                    for (const auto& p : m_idx2label)
                     {
-                        // TODO: Figure out a way to do this without going through python
-                        py::gil_scoped_acquire gil;
-                        x->set_meta(m_idx2label[0], py::cast(values));
-                    }
+                        const std::size_t column = p.first;
+                        for (std::size_t row=0; row < num_rows; ++row)
+                        {
+                            probs_np[row] = values[column + row*num_columns];
+                        }
 
+                        {
+                            py::gil_scoped_acquire gil;
+                            x->set_meta(p.second, py::cast(probs_np));
+                        }
+                    }
                     output.on_next(x);
                 },
                 [&](std::exception_ptr error_ptr) { output.on_error(error_ptr); },
