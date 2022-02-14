@@ -19,10 +19,14 @@ import unittest
 from unittest import mock
 
 import cupy as cp
-from torch import threshold
+
+import cudf as pd
 
 from morpheus.config import Config
 from morpheus.pipeline.general_stages import FilterDetectionsStage
+from morpheus.pipeline.messages import MessageMeta
+from morpheus.pipeline.messages import MultiResponseProbsMessage
+from morpheus.pipeline.messages import ResponseMemoryProbs
 from tests import BaseMorpheusTest
 
 
@@ -100,6 +104,54 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         self.assertEqual(output_list[1].offset, 4)
         self.assertEqual(output_list[1].mess_offset, 12)
         self.assertEqual(output_list[1].mess_count, 1)
+
+    def test_filter_no_mock_no_cpp(self):
+        config = Config.get()
+        config.use_cpp = False
+
+        # FilterDetectionStage will return any row if at least one value is above the threshold
+        # We are expecting 3 slices: 0:9, 10:14, 15:21
+        probs = cp.array([
+            [0.1, 0.7, 0.7, 0.7],
+            [0. , 0.5, 0.6, 0.3],
+            [1. , 0.9, 0.5, 0.9],
+            [0.5, 0.6, 0.2, 0.9],
+            [0.5, 0.5, 0.7, 0.9],
+            [1. , 0.1, 0.1, 0.3],
+            [0.6, 0. , 0.5, 0.5],
+            [1. , 0.2, 0.2, 0.9],
+            [0.5, 0.8, 0.6, 0. ],
+            [0.3, 0.4, 0.1, 0.4], # row 9 doesn't pass
+            [0.1, 0.3, 1. , 0.6],
+            [0.9, 0. , 0.1, 0.5],
+            [0.5, 0.3, 0.6, 0.8],
+            [0. , 0.5, 0.5, 0.6],
+            [0.2, 0.5, 0.1, 0.3], # row 14 doesn't pass
+            [0. , 0.3, 0.5, 0.6],
+            [0.5, 1. , 0.4, 0.7],
+            [0.6, 0.8, 0.8, 0.1],
+            [0.8, 0.8, 1. , 0.6],
+            [0.1, 0.9, 0.1, 0.3]
+        ])
+
+        mm = MessageMeta(pd.DataFrame())
+        rmp = ResponseMemoryProbs(1, probs)
+        mpm = MultiResponseProbsMessage(mm, 0, 1, rmp, 0, len(probs))
+
+        fds = FilterDetectionsStage(config, threshold=0.5)
+        output_list = fds.filter(mpm)
+
+        self.assertEqual(len(output_list), 3)
+        (out1, out2, out3) = output_list
+
+        self.assertEqual(out1.mess_offset, 0)
+        self.assertEqual(out1.mess_count, 9)
+
+        self.assertEqual(out2.mess_offset, 10)
+        self.assertEqual(out2.mess_count, 4)
+
+        self.assertEqual(out3.mess_offset, 15)
+        self.assertEqual(out3.mess_count, 5)
 
     def test_build_single_no_cpp(self):
         mock_stream = mock.MagicMock()
