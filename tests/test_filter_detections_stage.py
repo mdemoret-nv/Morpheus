@@ -19,15 +19,50 @@ import unittest
 from unittest import mock
 
 import cupy as cp
+import numpy as np
 
 import cudf as pd
 
 from morpheus.config import Config
+from morpheus.pipeline import LinearPipeline
+from morpheus.pipeline.file_types import FileTypes
 from morpheus.pipeline.general_stages import FilterDetectionsStage
+from morpheus.pipeline.input.from_file import FileSourceStage
+from morpheus.pipeline.input.utils import read_file_to_df
 from morpheus.pipeline.messages import MessageMeta
 from morpheus.pipeline.messages import MultiResponseProbsMessage
 from morpheus.pipeline.messages import ResponseMemoryProbs
+from morpheus.pipeline.output.serialize import SerializeStage
+from morpheus.pipeline.output.to_file import WriteToFileStage
+from morpheus.pipeline.pipeline import SingleOutputSource
+from morpheus.pipeline.preprocessing import DeserializeStage
 from tests import BaseMorpheusTest
+
+
+def _build_mpm_from_file(filename):
+    probs = cp.array(np.loadtxt(filename, delimiter=",", skiprows=1))
+
+    mm = MessageMeta(read_file_to_df(filename, FileTypes.Csv))
+    rmp = ResponseMemoryProbs(1, probs)
+    return MultiResponseProbsMessage(mm, 0, 1, rmp, 0, len(probs))
+
+class CupySrc(SingleOutputSource):
+    def __init__(self, c: Config, filename: str):
+        super().__init__(c)
+        self._filename = filename
+
+    @property
+    def name(self) -> str:
+        return "test"
+
+    def _read_file(self):
+        yield _build_mpm_from_file(self._filename)
+
+    def _build_source(self, seg):
+        out_stream = seg.make_source(self.unique_name, self._read_file())
+        out_type = MultiResponseProbsMessage
+
+        return out_stream, out_type
 
 
 class TestFilterDetectionsStage(BaseMorpheusTest):
@@ -110,33 +145,9 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         config.use_cpp = False
 
         # FilterDetectionStage will return any row if at least one value is above the threshold
-        # We are expecting 3 slices: 0:9, 10:14, 15:21
-        probs = cp.array([
-            [0.1, 0.7, 0.7, 0.7],
-            [0. , 0.5, 0.6, 0.3],
-            [1. , 0.9, 0.5, 0.9],
-            [0.5, 0.6, 0.2, 0.9],
-            [0.5, 0.5, 0.7, 0.9],
-            [1. , 0.1, 0.1, 0.3],
-            [0.6, 0. , 0.5, 0.5],
-            [1. , 0.2, 0.2, 0.9],
-            [0.5, 0.8, 0.6, 0. ],
-            [0.3, 0.4, 0.1, 0.4], # row 9 doesn't pass
-            [0.1, 0.3, 1. , 0.6],
-            [0.9, 0. , 0.1, 0.5],
-            [0.5, 0.3, 0.6, 0.8],
-            [0. , 0.5, 0.5, 0.6],
-            [0.2, 0.5, 0.1, 0.3], # row 14 doesn't pass
-            [0. , 0.3, 0.5, 0.6],
-            [0.5, 1. , 0.4, 0.7],
-            [0.6, 0.8, 0.8, 0.1],
-            [0.8, 0.8, 1. , 0.6],
-            [0.1, 0.9, 0.1, 0.3]
-        ])
-
-        mm = MessageMeta(pd.DataFrame())
-        rmp = ResponseMemoryProbs(1, probs)
-        mpm = MultiResponseProbsMessage(mm, 0, 1, rmp, 0, len(probs))
+        # The input data contains 20 rows, all rows have one value above the threshold except rows 9 & 14
+        # Expecting 3 slices: 0:9, 10:14, 15:21
+        mpm = _build_mpm_from_file(os.path.join(self._expeced_data_dir, "filter_probs.csv"))
 
         fds = FilterDetectionsStage(config, threshold=0.5)
         output_list = fds.filter(mpm)
@@ -167,14 +178,38 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         mock_segment.make_node_full.assert_called_once()
         mock_segment.make_edge.assert_called_once()
 
-    def test_build_single_cpp(self):
-
+    def _test_filter_pipe(self, use_cpp):
         config = Config.get()
-        config.use_cpp = True
-        fds = FilterDetectionsStage(config)
-        #fds._build_single(mock_segment, mock_input)
-        self.assertTrue(False)
+        config.use_cpp = use_cpp
 
+        input_file = os.path.join(self._expeced_data_dir, "filter_probs.csv")
+
+        temp_dir = self._mk_tmp_dir()
+        out_file = os.path.join(temp_dir, 'results.csv')
+
+
+        pipe = LinearPipeline(config)
+        pipe.set_source(CupySrc(config, filename=input_file))
+        pipe.add_stage(FilterDetectionsStage(config, threshold=0.5))
+        pipe.add_stage(SerializeStage(config, output_type="csv", include=['^v\d$']))
+        pipe.add_stage(WriteToFileStage(config, filename=out_file, overwrite=False))
+        pipe.run()
+
+        self.assertTrue(os.path.exists(out_file))
+
+        input_data = np.loadtxt(input_file, delimiter=",", skiprows=1)
+        output_data = np.loadtxt(out_file, delimiter=",")
+
+        expected = input_data[0:9, :].tolist() + input_data[10:14, :].tolist() + input_data[15:, :].tolist()
+
+        # The output data will contain an additional id column that we will need to slice off
+        self.assertEqual(expected, output_data[:, 1:].tolist())
+
+    def test_filter_pipe_no_cpp(self):
+        self._test_filter_pipe(False)
+
+    def test_filter_pipe_cpp(self):
+        self._test_filter_pipe(True)
 
 if __name__ == '__main__':
     unittest.main()
