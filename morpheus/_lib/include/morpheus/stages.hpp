@@ -899,27 +899,34 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
                     const auto& probs = x->get_probs();
                     const auto& shape = probs.get_shape();
 
-                    CHECK(probs.rank() == 1 || (shape.size() == 2 && shape[1] == 1)) << "C++ impl of the FilterDetectionsStage currently only supports single dimensional arrays";
+                    CHECK(probs.rank() == 2) << "C++ impl of the FilterDetectionsStage currently only supports two dimensional arrays";
 
+                    const std::size_t num_columns = shape[1];
+                    const std::size_t num_rows = shape[0];
                     std::vector<float> values(probs.count());
+
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
 
-                    // using size() as our marker for undefined
-                    std::size_t slice_start = values.size();
-                    for (std::size_t i=0; i < values.size(); ++i) {
-                        if (bool above_threshold = values[i] > m_threshold;
-                            above_threshold && slice_start == values.size()) {
+                    // We are slicing by rows, using num_rows as our marker for undefined
+                    std::size_t slice_start = num_rows;
+                    for (std::size_t row=0; row < num_rows; ++row) {
+                        const std::size_t row_offset = row * num_columns;
+                        bool above_threshold = false;
+                        for (std::size_t column=0; !above_threshold && column < num_columns; ++column) {
+                            above_threshold = values[row_offset + column] > m_threshold;
+                        }
 
-                            slice_start = i;
-                        } else if (!above_threshold && slice_start != values.size()) {
-                            output.on_next(x->get_slice(slice_start, i));
-                            slice_start = values.size();
+                        if (above_threshold && slice_start == num_rows) {
+                            slice_start = row;
+                        } else if (!above_threshold && slice_start != num_rows) {
+                            output.on_next(x->get_slice(slice_start, row));
+                            slice_start = num_rows;
                         }
                     }
 
-                    if (slice_start != values.size()) {
-                        // Last elem was above the threshold
-                        output.on_next(x->get_slice(slice_start, values.size()));
+                    if (slice_start != num_rows) {
+                        // Last row was above the threshold
+                        output.on_next(x->get_slice(slice_start, num_rows));
                     }
                 },
                 [&](std::exception_ptr error_ptr) { output.on_error(error_ptr); },
