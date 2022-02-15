@@ -196,8 +196,6 @@ class MonitorStage(SinglePortStage):
 
         self._determine_count_fn = determine_count_fn
 
-        self._MultiMessageCls = MultiMessage.get_impl_class()
-
     @property
     def name(self) -> str:
         return "monitor"
@@ -277,7 +275,7 @@ class MonitorStage(SinglePortStage):
 
         if (isinstance(x, cudf.DataFrame)):
             return lambda y: len(y.index)
-        elif (isinstance(x, self._MultiMessageCls)):
+        elif (isinstance(x, MultiMessage)):
             return lambda y: y.mess_count
         elif (isinstance(x, list)):
             item_count_fn = self._auto_count_fn(x[0])
