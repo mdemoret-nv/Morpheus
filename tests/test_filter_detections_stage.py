@@ -30,39 +30,39 @@ from morpheus.pipeline.general_stages import FilterDetectionsStage
 from morpheus.pipeline.input.from_file import FileSourceStage
 from morpheus.pipeline.input.utils import read_file_to_df
 from morpheus.pipeline.messages import MessageMeta
+from morpheus.pipeline.messages import MultiMessage
 from morpheus.pipeline.messages import MultiResponseProbsMessage
 from morpheus.pipeline.messages import ResponseMemoryProbs
 from morpheus.pipeline.output.serialize import SerializeStage
 from morpheus.pipeline.output.to_file import WriteToFileStage
 from morpheus.pipeline.pipeline import SingleOutputSource
+from morpheus.pipeline.pipeline import SinglePortStage
 from morpheus.pipeline.preprocessing import DeserializeStage
 from tests import BaseMorpheusTest
 
 
-def _build_mpm_from_file(filename):
-    probs = cp.array(np.loadtxt(filename, delimiter=",", skiprows=1))
-
-    mm = MessageMeta(read_file_to_df(filename, FileTypes.Csv))
-    rmp = ResponseMemoryProbs(1, probs)
-    return MultiResponseProbsMessage(mm, 0, 1, rmp, 0, len(probs))
-
-class CupySrc(SingleOutputSource):
-    def __init__(self, c: Config, filename: str):
+class ConvMsg(SinglePortStage):
+    def __init__(self, c: Config):
         super().__init__(c)
-        self._filename = filename
 
     @property
-    def name(self) -> str:
+    def name(self):
         return "test"
 
-    def _read_file(self):
-        yield _build_mpm_from_file(self._filename)
+    def accepted_types(self):
+        return (MultiMessage, )
 
-    def _build_source(self, seg):
-        out_stream = seg.make_source(self.unique_name, self._read_file())
-        out_type = MultiResponseProbsMessage
+    def _conv_message(self, m):
+        df = m.meta.df
+        probs = cp.asanyarray(df.astype(cp.float32).values)
+        memory = ResponseMemoryProbs(count=len(probs), probs=probs)
+        return MultiResponseProbsMessage(m.meta, 0, len(probs), memory, 0, len(probs))
 
-        return out_stream, out_type
+    def _build_single(self, seg, input_stream):
+        stream = seg.make_node(self.unique_name, self._conv_message)
+        seg.make_edge(input_stream[0], stream)
+
+        return stream, MultiResponseProbsMessage
 
 
 class TestFilterDetectionsStage(BaseMorpheusTest):
@@ -147,7 +147,12 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         # FilterDetectionStage will return any row if at least one value is above the threshold
         # The input data contains 20 rows, all rows have one value above the threshold except rows 9 & 14
         # Expecting 3 slices: 0:9, 10:14, 15:21
-        mpm = _build_mpm_from_file(os.path.join(self._expeced_data_dir, "filter_probs.csv"))
+        input_file = os.path.join(self._expeced_data_dir, "filter_probs.csv")
+        probs = cp.asarray(np.loadtxt(input_file, delimiter=",", skiprows=1))
+
+        mm = MessageMeta(read_file_to_df(input_file, FileTypes.Csv))
+        rmp = ResponseMemoryProbs(len(probs), probs)
+        mpm = MultiResponseProbsMessage(mm, 0, len(probs), rmp, 0, len(probs))
 
         fds = FilterDetectionsStage(config, threshold=0.5)
         output_list = fds.filter(mpm)
@@ -189,9 +194,11 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
 
 
         pipe = LinearPipeline(config)
-        pipe.set_source(CupySrc(config, filename=input_file))
+        pipe.set_source(FileSourceStage(config, filename=input_file, iterative=False))
+        pipe.add_stage(DeserializeStage(config))
+        pipe.add_stage(ConvMsg(config))
         pipe.add_stage(FilterDetectionsStage(config, threshold=0.5))
-        pipe.add_stage(SerializeStage(config, output_type="csv", include=['^v\d$']))
+        pipe.add_stage(SerializeStage(config, output_type="csv"))
         pipe.add_stage(WriteToFileStage(config, filename=out_file, overwrite=False))
         pipe.run()
 
@@ -200,14 +207,18 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
         input_data = np.loadtxt(input_file, delimiter=",", skiprows=1)
         output_data = np.loadtxt(out_file, delimiter=",")
 
-        expected = input_data[0:9, :].tolist() + input_data[10:14, :].tolist() + input_data[15:, :].tolist()
-
         # The output data will contain an additional id column that we will need to slice off
-        self.assertEqual(expected, output_data[:, 1:].tolist())
+        # also somehow 0.7 ends up being 0.7000000000000001
+        output_data = np.around(output_data[:, 1:], 2)
 
+        expected = np.concatenate((input_data[0:9, :], input_data[10:14, :], input_data[15:, :]))
+        self.assertEqual(output_data.tolist(), expected.tolist())
+
+    @unittest.skipIf(os.environ.get("MORPHEUS_RUN_SLOW_TESTS") is None, "MORPHEUS_RUN_SLOW_TESTS is not defined")
     def test_filter_pipe_no_cpp(self):
         self._test_filter_pipe(False)
 
+    @unittest.skipIf(os.environ.get("MORPHEUS_RUN_SLOW_TESTS") is None, "MORPHEUS_RUN_SLOW_TESTS is not defined")
     def test_filter_pipe_cpp(self):
         self._test_filter_pipe(True)
 

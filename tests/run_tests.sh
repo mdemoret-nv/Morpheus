@@ -41,4 +41,7 @@ if [ -n "${MORPHEUS_RUN_SLOW_TESTS}" ]; then
     pytest ${TEST_DIR}/test_phishing.py::TestPhishing::test_email_cpp
     pytest ${TEST_DIR}/test_sid.py::TestSid::test_minibert_no_cpp
     pytest ${TEST_DIR}/test_sid.py::TestSid::test_minibert_cpp
+    pytest ${TEST_DIR}/test_filter_detections_stage.py::TestFilterDetectionsStage::test_filter_pipe_cpp
+    pytest ${TEST_DIR}/test_filter_detections_stage.py::TestFilterDetectionsStage::test_filter_pipe_no_cpp
+
 fi

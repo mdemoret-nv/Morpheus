@@ -901,8 +901,8 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
 
                     CHECK(probs.rank() == 2) << "C++ impl of the FilterDetectionsStage currently only supports two dimensional arrays";
 
-                    const std::size_t num_columns = shape[1];
                     const std::size_t num_rows = shape[0];
+                    const std::size_t num_columns = shape[1];
                     std::vector<float> values(probs.count());
 
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
@@ -910,10 +910,9 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
                     // We are slicing by rows, using num_rows as our marker for undefined
                     std::size_t slice_start = num_rows;
                     for (std::size_t row=0; row < num_rows; ++row) {
-                        const std::size_t row_offset = row * num_columns;
                         bool above_threshold = false;
                         for (std::size_t column=0; !above_threshold && column < num_columns; ++column) {
-                            above_threshold = values[row_offset + column] > m_threshold;
+                            above_threshold = values[column*num_rows + row] > m_threshold;
                         }
 
                         if (above_threshold && slice_start == num_rows) {
@@ -966,8 +965,8 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                         << "Label count does not match output of model. Label count: " << m_num_class_labels
                         << ", Model output: " << shape[1];
 
-                    const std::size_t num_columns = shape[1];
                     const std::size_t num_rows = shape[0];
+                    const std::size_t num_columns = shape[1];
 
                     std::vector<float> values(probs.count());
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
@@ -1027,8 +1026,8 @@ class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponsePro
                         << "Label count does not match output of model. Label count: " << m_num_class_labels
                         << ", Model output: " << shape[1];
 
-                    const std::size_t num_columns = shape[1];
                     const std::size_t num_rows = shape[0];
+                    const std::size_t num_columns = shape[1];
 
                     std::vector<float> values(probs.count());
                     cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
