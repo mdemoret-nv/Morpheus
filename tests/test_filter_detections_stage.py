@@ -21,48 +21,14 @@ from unittest import mock
 import cupy as cp
 import numpy as np
 
-import cudf as pd
-
 from morpheus.config import Config
-from morpheus.pipeline import LinearPipeline
 from morpheus.pipeline.file_types import FileTypes
 from morpheus.pipeline.general_stages import FilterDetectionsStage
-from morpheus.pipeline.input.from_file import FileSourceStage
 from morpheus.pipeline.input.utils import read_file_to_df
 from morpheus.pipeline.messages import MessageMeta
-from morpheus.pipeline.messages import MultiMessage
 from morpheus.pipeline.messages import MultiResponseProbsMessage
 from morpheus.pipeline.messages import ResponseMemoryProbs
-from morpheus.pipeline.output.serialize import SerializeStage
-from morpheus.pipeline.output.to_file import WriteToFileStage
-from morpheus.pipeline.pipeline import SingleOutputSource
-from morpheus.pipeline.pipeline import SinglePortStage
-from morpheus.pipeline.preprocessing import DeserializeStage
 from tests import BaseMorpheusTest
-
-
-class ConvMsg(SinglePortStage):
-    def __init__(self, c: Config):
-        super().__init__(c)
-
-    @property
-    def name(self):
-        return "test"
-
-    def accepted_types(self):
-        return (MultiMessage, )
-
-    def _conv_message(self, m):
-        df = m.meta.df
-        probs = cp.asanyarray(df.astype(cp.float32).values)
-        memory = ResponseMemoryProbs(count=len(probs), probs=probs)
-        return MultiResponseProbsMessage(m.meta, 0, len(probs), memory, 0, len(probs))
-
-    def _build_single(self, seg, input_stream):
-        stream = seg.make_node(self.unique_name, self._conv_message)
-        seg.make_edge(input_stream[0], stream)
-
-        return stream, MultiResponseProbsMessage
 
 
 class TestFilterDetectionsStage(BaseMorpheusTest):
@@ -182,45 +148,6 @@ class TestFilterDetectionsStage(BaseMorpheusTest):
 
         mock_segment.make_node_full.assert_called_once()
         mock_segment.make_edge.assert_called_once()
-
-    def _test_filter_pipe(self, use_cpp):
-        config = Config.get()
-        config.use_cpp = use_cpp
-
-        input_file = os.path.join(self._expeced_data_dir, "filter_probs.csv")
-
-        temp_dir = self._mk_tmp_dir()
-        out_file = os.path.join(temp_dir, 'results.csv')
-
-
-        pipe = LinearPipeline(config)
-        pipe.set_source(FileSourceStage(config, filename=input_file, iterative=False))
-        pipe.add_stage(DeserializeStage(config))
-        pipe.add_stage(ConvMsg(config))
-        pipe.add_stage(FilterDetectionsStage(config, threshold=0.5))
-        pipe.add_stage(SerializeStage(config, output_type="csv"))
-        pipe.add_stage(WriteToFileStage(config, filename=out_file, overwrite=False))
-        pipe.run()
-
-        self.assertTrue(os.path.exists(out_file))
-
-        input_data = np.loadtxt(input_file, delimiter=",", skiprows=1)
-        output_data = np.loadtxt(out_file, delimiter=",")
-
-        # The output data will contain an additional id column that we will need to slice off
-        # also somehow 0.7 ends up being 0.7000000000000001
-        output_data = np.around(output_data[:, 1:], 2)
-
-        expected = np.concatenate((input_data[0:9, :], input_data[10:14, :], input_data[15:, :]))
-        self.assertEqual(output_data.tolist(), expected.tolist())
-
-    @unittest.skipIf(os.environ.get("MORPHEUS_RUN_SLOW_TESTS") is None, "MORPHEUS_RUN_SLOW_TESTS is not defined")
-    def test_filter_pipe_no_cpp(self):
-        self._test_filter_pipe(False)
-
-    @unittest.skipIf(os.environ.get("MORPHEUS_RUN_SLOW_TESTS") is None, "MORPHEUS_RUN_SLOW_TESTS is not defined")
-    def test_filter_pipe_cpp(self):
-        self._test_filter_pipe(True)
 
 if __name__ == '__main__':
     unittest.main()
