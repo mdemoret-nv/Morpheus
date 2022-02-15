@@ -905,7 +905,7 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
                     const std::size_t num_columns = shape[1];
                     std::vector<float> values(probs.count());
 
-                    cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
+                    NEO_CHECK_CUDA(cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost));
 
                     // We are slicing by rows, using num_rows as our marker for undefined
                     std::size_t slice_start = num_rows;
@@ -969,7 +969,7 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                     const std::size_t num_columns = shape[1];
 
                     std::vector<float> values(probs.count());
-                    cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
+                    NEO_CHECK_CUDA(cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost));
 
                     std::vector<bool> probs_np(num_rows);
                     for (const auto& p : m_idx2label)
@@ -1030,7 +1030,7 @@ class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponsePro
                     const std::size_t num_columns = shape[1];
 
                     std::vector<float> values(probs.count());
-                    cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost);
+                    NEO_CHECK_CUDA(cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost));
 
                     std::vector<float> probs_np(num_rows);
                     for (const auto& p : m_idx2label)
