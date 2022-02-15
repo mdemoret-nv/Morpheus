@@ -899,7 +899,8 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
                     const auto& probs = x->get_probs();
                     const auto& shape = probs.get_shape();
 
-                    CHECK(probs.rank() == 2) << "C++ impl of the FilterDetectionsStage currently only supports two dimensional arrays";
+                    CHECK(probs.rank() == 2 && probs.dtype().type_id() == neo::TypeId::FLOAT32)
+                        << "C++ impl of the FilterDetectionsStage currently only supports two dimensional arrays of 32bit floats";
 
                     const std::size_t num_rows = shape[0];
                     const std::size_t num_columns = shape[1];
@@ -965,6 +966,9 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                         << "Label count does not match output of model. Label count: " << m_num_class_labels
                         << ", Model output: " << shape[1];
 
+                    CHECK(probs.dtype().type_id() == neo::TypeId::FLOAT32)
+                        << "C++ impl of the AddClassificationsStage currently only accepts arrays of 32bit float values";
+
                     const std::size_t num_rows = shape[0];
                     const std::size_t num_columns = shape[1];
 
@@ -1025,6 +1029,9 @@ class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponsePro
                     CHECK(shape.size() == 2 && shape[1] == m_num_class_labels)
                         << "Label count does not match output of model. Label count: " << m_num_class_labels
                         << ", Model output: " << shape[1];
+
+                    CHECK(probs.dtype().type_id() == neo::TypeId::FLOAT32)
+                        << "C++ impl of the AddScoresStage currently only accepts arrays of 32bit float values";
 
                     const std::size_t num_rows = shape[0];
                     const std::size_t num_columns = shape[1];
