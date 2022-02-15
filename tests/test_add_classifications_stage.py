@@ -84,9 +84,6 @@ class TestAddClassificationsStage(BaseMorpheusTest):
         mock_segment.make_node.assert_called_once()
         mock_segment.make_edge.assert_called_once()
 
-    def test_build_single_cpp(self):
-        self.assertTrue(False)
-
 
 if __name__ == '__main__':
     unittest.main()
