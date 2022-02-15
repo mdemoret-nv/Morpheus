@@ -35,13 +35,13 @@ pytest --cov=morpheus --cov-report term-missing  \
 if [ -n "${MORPHEUS_RUN_SLOW_TESTS}" ]; then
     pytest ${TEST_DIR}/test_abp.py::TestABP::test_abp_no_cpp
     pytest ${TEST_DIR}/test_abp.py::TestABP::test_abp_cpp
+    pytest ${TEST_DIR}/test_filter_detections_stage.py::TestFilterDetectionsStage::test_filter_pipe_cpp
+    pytest ${TEST_DIR}/test_filter_detections_stage.py::TestFilterDetectionsStage::test_filter_pipe_no_cpp
     pytest ${TEST_DIR}/test_hammah.py::TestHammah::test_hammah_roleg
     pytest ${TEST_DIR}/test_hammah.py::TestHammah::test_hammah_user123
     pytest ${TEST_DIR}/test_phishing.py::TestPhishing::test_email_no_cpp
     pytest ${TEST_DIR}/test_phishing.py::TestPhishing::test_email_cpp
     pytest ${TEST_DIR}/test_sid.py::TestSid::test_minibert_no_cpp
     pytest ${TEST_DIR}/test_sid.py::TestSid::test_minibert_cpp
-    pytest ${TEST_DIR}/test_filter_detections_stage.py::TestFilterDetectionsStage::test_filter_pipe_cpp
-    pytest ${TEST_DIR}/test_filter_detections_stage.py::TestFilterDetectionsStage::test_filter_pipe_no_cpp
 
 fi
