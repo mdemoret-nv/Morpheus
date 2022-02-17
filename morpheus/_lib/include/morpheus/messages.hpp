@@ -299,7 +299,8 @@ class MultiMessage
         py::gil_scoped_acquire gil;
         auto df = meta->get_py_table();
         auto index_slice = py::slice(py::int_(mess_offset), py::int_(mess_offset + mess_count), py::none());
-        df.attr("loc")[py::make_tuple(df.attr("index")[index_slice], column_names)] = value;
+        auto col_tuple = py::tuple(py::cast(column_names));
+        df.attr("loc")[py::make_tuple(df.attr("index")[index_slice], col_tuple)] = value;
     }
 
     // cudf::column_view set_meta(const std::string& col_name)
