@@ -24,7 +24,13 @@
 #include <rmm/device_buffer.hpp>
 #include <trtlab/neo/util/type_utils.hpp>
 
+namespace trtlab::neo {
+class TensorObject;
+}
+
 namespace morpheus {
+
+struct DeviceTensorView;
 
 // Simple object that just holds 4 things: element count, element dtype, device_buffer, and bytes_offset
 struct DevMemInfo
@@ -55,5 +61,10 @@ std::shared_ptr<rmm::device_buffer> transpose(const DevMemInfo& input, size_t ro
 
 // Builds an Nx3 segment ID matrix
 std::shared_ptr<rmm::device_buffer> create_seg_ids(size_t row_count, size_t fea_len, trtlab::neo::TypeId output_type);
+
+// Return a Nx1 array of boolean where x[i,j] >= thresh_val
+std::shared_ptr<rmm::device_buffer> threshold(const DevMemInfo& input, size_t rows, size_t cols, double thresh_val);
+
+DeviceTensorView threshold(const DeviceTensorView& input, double thresh_val);
 
 }  // namespace morpheus

@@ -25,8 +25,8 @@
 #include <regex>
 #include <utility>
 
-#include "morpheus/common.hpp"
 #include "morpheus/messages.hpp"
+#include "morpheus/tensor.hpp"
 #include "morpheus/type_utils.hpp"
 
 #include <http_client.h>
@@ -287,34 +287,34 @@ class PreprocessNLPStage
                         cudf::cast(token_results.tensor_token_ids->view(), cudf::data_type(cudf::type_id::INT32))
                             ->release();
 
-                    memory->inputs["input_ids"] = std::move(Tensor::create(
+                    memory->inputs["input_ids"] = RMMTensor::create(
                         std::move(input_ids_released.data),
                         DType::create<int32_t>(),
                         std::vector<neo::TensorIndex>{length, static_cast<int>(token_results.sequence_length)},
                         std::vector<neo::TensorIndex>{},
-                        0));
+                        0);
 
                     length = token_results.tensor_attention_mask->size() / token_results.sequence_length;
                     auto input_mask_released =
                         cudf::cast(token_results.tensor_attention_mask->view(), cudf::data_type(cudf::type_id::INT32))
                             ->release();
-                    memory->inputs["input_mask"] = std::move(Tensor::create(
+                    memory->inputs["input_mask"] = RMMTensor::create(
                         std::move(input_mask_released.data),
                         DType::create<int32_t>(),
                         std::vector<neo::TensorIndex>{length, static_cast<int>(token_results.sequence_length)},
                         std::vector<neo::TensorIndex>{},
-                        0));
+                        0);
 
                     length = token_results.tensor_metadata->size() / 3;
                     auto seq_ids_released =
                         cudf::cast(token_results.tensor_metadata->view(), cudf::data_type(cudf::type_id::INT32))
                             ->release();
                     memory->inputs["seq_ids"] =
-                        std::move(Tensor::create(std::move(seq_ids_released.data),
-                                                 DType::create<int32_t>(),
-                                                 std::vector<neo::TensorIndex>{length, static_cast<int32_t>(3)},
-                                                 std::vector<neo::TensorIndex>{},
-                                                 0));
+                        RMMTensor::create(std::move(seq_ids_released.data),
+                                          DType::create<int32_t>(),
+                                          std::vector<neo::TensorIndex>{length, static_cast<int32_t>(3)},
+                                          std::vector<neo::TensorIndex>{},
+                                          0);
 
                     auto next = std::make_shared<MultiInferenceMessage>(
                         x->meta, x->mess_offset, x->mess_count, std::move(memory), 0, memory->count);
@@ -460,14 +460,15 @@ class PreprocessFILStage
                                   fea_cols.size(),
                                   x->mess_count);
 
-                    auto input__0 = Tensor::create(transposed_data,
-                                                   DType::create<float>(),
-                                                   std::vector<neo::TensorIndex>{static_cast<long long>(x->mess_count),
-                                                                                 static_cast<int>(fea_cols.size())},
-                                                   std::vector<neo::TensorIndex>{},
-                                                   0);
+                    auto input__0 =
+                        RMMTensor::create(transposed_data,
+                                          DType::create<float>(),
+                                          std::vector<neo::TensorIndex>{static_cast<long long>(x->mess_count),
+                                                                        static_cast<int>(fea_cols.size())},
+                                          std::vector<neo::TensorIndex>{},
+                                          0);
 
-                    auto seg_ids = Tensor::create(
+                    auto seg_ids = RMMTensor::create(
                         create_seg_ids(x->mess_count, fea_cols.size(), trtlab::neo::TypeId::UINT32),
                         DType::create<uint32_t>(),
                         std::vector<neo::TensorIndex>{static_cast<long long>(x->mess_count), static_cast<int>(3)},
@@ -737,12 +738,12 @@ class InferenceClientStage
                             elem_count * model_output.datatype.item_size(), rmm::cuda_stream_per_thread);
 
                         reponse_memory->outputs[model_output.mapped_name] =
-                            Tensor::create(std::move(output_buffer),
-                                           model_output.datatype,
-                                           std::vector<neo::TensorIndex>{static_cast<int>(total_shape[0]),
-                                                                         static_cast<int>(total_shape[1])},
-                                           std::vector<neo::TensorIndex>{},
-                                           0);
+                            RMMTensor::create(std::move(output_buffer),
+                                              model_output.datatype,
+                                              std::vector<neo::TensorIndex>{static_cast<int>(total_shape[0]),
+                                                                            static_cast<int>(total_shape[1])},
+                                              std::vector<neo::TensorIndex>{},
+                                              0);
                     }
 
                     // This will be the final output of all mini-batches
@@ -772,7 +773,7 @@ class InferenceClientStage
                                 // Convert to the right type. Make shallow if necessary
                                 auto final_tensor = inp_tensor.as_type(model_input.datatype);
 
-                                std::vector<uint8_t> inp_data = final_tensor.get_host_data();
+                                std::vector<uint8_t> inp_data = HostTensorView(final_tensor).get_host_data();
 
                                 // Test
                                 tc::InferInput* inp_ptr;
@@ -846,12 +847,12 @@ class InferenceClientStage
 
                             mini_batch_output->set_output(
                                 model_output.mapped_name,
-                                Tensor::create(std::move(output_buffer),
-                                               model_output.datatype,
-                                               std::vector<neo::TensorIndex>{static_cast<int>(output_shape[0]),
-                                                                             static_cast<int>(output_shape[1])},
-                                               std::vector<neo::TensorIndex>{},
-                                               0));
+                                RMMTensor::create(std::move(output_buffer),
+                                                  model_output.datatype,
+                                                  std::vector<neo::TensorIndex>{static_cast<int>(output_shape[0]),
+                                                                                static_cast<int>(output_shape[1])},
+                                                  std::vector<neo::TensorIndex>{},
+                                                  0));
                         }
                     }
                     output.on_next(std::move(response));
@@ -876,10 +877,12 @@ class InferenceClientStage
     int m_max_batch_size{-1};
 };
 
-class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
+class FilterDetectionsStage
+  : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
 {
   public:
-    using base_t = pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
+    using base_t =
+        pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
     using base_t::operator_fn_t;
     using base_t::reader_type_t;
     using base_t::writer_type_t;
@@ -900,31 +903,40 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
                     const auto& shape = probs.get_shape();
 
                     CHECK(probs.rank() == 2 && probs.dtype().type_id() == neo::TypeId::FLOAT32)
-                        << "C++ impl of the FilterDetectionsStage currently only supports two dimensional arrays of 32bit floats";
+                        << "C++ impl of the FilterDetectionsStage currently only supports two dimensional arrays of "
+                           "32bit floats";
 
-                    const std::size_t num_rows = shape[0];
+                    const std::size_t num_rows    = shape[0];
                     const std::size_t num_columns = shape[1];
                     std::vector<float> values(probs.count());
 
                     NEO_CHECK_CUDA(cudaMemcpy(values.data(), probs.data(), probs.bytes(), cudaMemcpyDeviceToHost));
 
+                    auto thresh_bool_val = threshold(probs, m_threshold);
+
                     // We are slicing by rows, using num_rows as our marker for undefined
                     std::size_t slice_start = num_rows;
-                    for (std::size_t row=0; row < num_rows; ++row) {
+                    for (std::size_t row = 0; row < num_rows; ++row)
+                    {
                         bool above_threshold = false;
-                        for (std::size_t column=0; !above_threshold && column < num_columns; ++column) {
-                            above_threshold = values[column*num_rows + row] > m_threshold;
+                        for (std::size_t column = 0; !above_threshold && column < num_columns; ++column)
+                        {
+                            above_threshold = values[column * num_rows + row] > m_threshold;
                         }
 
-                        if (above_threshold && slice_start == num_rows) {
+                        if (above_threshold && slice_start == num_rows)
+                        {
                             slice_start = row;
-                        } else if (!above_threshold && slice_start != num_rows) {
+                        }
+                        else if (!above_threshold && slice_start != num_rows)
+                        {
                             output.on_next(x->get_slice(slice_start, row));
                             slice_start = num_rows;
                         }
                     }
 
-                    if (slice_start != num_rows) {
+                    if (slice_start != num_rows)
+                    {
                         // Last row was above the threshold
                         output.on_next(x->get_slice(slice_start, num_rows));
                     }
@@ -937,21 +949,29 @@ class FilterDetectionsStage : public pyneo::PythonNode<std::shared_ptr<MultiResp
     float m_threshold;
 };
 
-class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
+class AddClassificationsStage
+  : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
 {
   public:
-    using base_t = pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
+    using base_t =
+        pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
     using base_t::operator_fn_t;
     using base_t::reader_type_t;
     using base_t::writer_type_t;
 
-    AddClassificationsStage(const neo::Segment& parent, const std::string& name, float threshold, std::size_t num_class_labels, std::map<std::size_t, std::string> idx2label) :
+    AddClassificationsStage(const neo::Segment& parent,
+                            const std::string& name,
+                            float threshold,
+                            std::size_t num_class_labels,
+                            std::map<std::size_t, std::string> idx2label) :
       neo::SegmentObject(parent, name),
       PythonNode(parent, name, build_operator()),
       m_threshold(threshold),
       m_num_class_labels(num_class_labels),
       m_idx2label(std::move(idx2label))
-    {CHECK(m_idx2label.size() <= m_num_class_labels) << "idx2label should represent a subset of the class_labels";}
+    {
+        CHECK(m_idx2label.size() <= m_num_class_labels) << "idx2label should represent a subset of the class_labels";
+    }
 
   private:
     operator_fn_t build_operator()
@@ -967,9 +987,10 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                         << ", Model output: " << shape[1];
 
                     CHECK(probs.dtype().type_id() == neo::TypeId::FLOAT32)
-                        << "C++ impl of the AddClassificationsStage currently only accepts arrays of 32bit float values";
+                        << "C++ impl of the AddClassificationsStage currently only accepts arrays of 32bit float "
+                           "values";
 
-                    const std::size_t num_rows = shape[0];
+                    const std::size_t num_rows    = shape[0];
                     const std::size_t num_columns = shape[1];
 
                     std::vector<float> values(probs.count());
@@ -979,9 +1000,9 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
                     for (const auto& p : m_idx2label)
                     {
                         std::size_t column = p.first;
-                        for (std::size_t row=0; row < num_rows; ++row)
+                        for (std::size_t row = 0; row < num_rows; ++row)
                         {
-                            probs_np[row] = values[column + row*num_columns] > m_threshold;
+                            probs_np[row] = values[column + row * num_columns] > m_threshold;
                         }
 
                         {
@@ -1002,20 +1023,27 @@ class AddClassificationsStage : public pyneo::PythonNode<std::shared_ptr<MultiRe
     std::map<std::size_t, std::string> m_idx2label;
 };
 
-class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
+class AddScoresStage
+  : public pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>
 {
   public:
-    using base_t = pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
+    using base_t =
+        pyneo::PythonNode<std::shared_ptr<MultiResponseProbsMessage>, std::shared_ptr<MultiResponseProbsMessage>>;
     using base_t::operator_fn_t;
     using base_t::reader_type_t;
     using base_t::writer_type_t;
 
-    AddScoresStage(const neo::Segment& parent, const std::string& name, std::size_t num_class_labels, std::map<std::size_t, std::string> idx2label) :
+    AddScoresStage(const neo::Segment& parent,
+                   const std::string& name,
+                   std::size_t num_class_labels,
+                   std::map<std::size_t, std::string> idx2label) :
       neo::SegmentObject(parent, name),
       PythonNode(parent, name, build_operator()),
       m_num_class_labels(num_class_labels),
       m_idx2label(std::move(idx2label))
-    {CHECK(m_idx2label.size() <= m_num_class_labels) << "idx2label should represent a subset of the class_labels";}
+    {
+        CHECK(m_idx2label.size() <= m_num_class_labels) << "idx2label should represent a subset of the class_labels";
+    }
 
   private:
     operator_fn_t build_operator()
@@ -1033,7 +1061,7 @@ class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponsePro
                     CHECK(probs.dtype().type_id() == neo::TypeId::FLOAT32)
                         << "C++ impl of the AddScoresStage currently only accepts arrays of 32bit float values";
 
-                    const std::size_t num_rows = shape[0];
+                    const std::size_t num_rows    = shape[0];
                     const std::size_t num_columns = shape[1];
 
                     std::vector<float> values(probs.count());
@@ -1043,9 +1071,9 @@ class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponsePro
                     for (const auto& p : m_idx2label)
                     {
                         const std::size_t column = p.first;
-                        for (std::size_t row=0; row < num_rows; ++row)
+                        for (std::size_t row = 0; row < num_rows; ++row)
                         {
-                            probs_np[row] = values[column + row*num_columns];
+                            probs_np[row] = values[column + row * num_columns];
                         }
 
                         {
@@ -1063,6 +1091,5 @@ class AddScoresStage : public pyneo::PythonNode<std::shared_ptr<MultiResponsePro
     std::size_t m_num_class_labels;
     std::map<std::size_t, std::string> m_idx2label;
 };
-
 
 }  // namespace morpheus

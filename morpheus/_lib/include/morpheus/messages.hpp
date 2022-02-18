@@ -23,9 +23,9 @@
 #include <utility>
 #include <vector>
 
-#include "morpheus/common.hpp"
 #include "morpheus/cudf_helpers.hpp"
 #include "morpheus/table_info.hpp"
+#include "morpheus/tensor.hpp"
 
 #include <pybind11/cast.h>
 #include <pybind11/gil.h>
@@ -193,7 +193,7 @@ class InferenceMemory
     InferenceMemory(size_t count) : count(count) {}
 
     size_t count{0};
-    std::map<std::string, neo::TensorObject> inputs;
+    std::map<std::string, DeviceTensorView> inputs;
 
     bool has_input(const std::string& name) const
     {
@@ -202,7 +202,7 @@ class InferenceMemory
 };
 
 #define DATA_CLASS_PROP(name, map)                                               \
-    const neo::TensorObject& get_##name() const                                  \
+    const DeviceTensorView& get_##name() const                                   \
     {                                                                            \
         auto found = map.find(#name);                                            \
         if (found == map.end())                                                  \
@@ -211,7 +211,7 @@ class InferenceMemory
         }                                                                        \
         return found->second;                                                    \
     }                                                                            \
-    void set_##name(neo::TensorObject name)                                      \
+    void set_##name(DeviceTensorView name)                                       \
     {                                                                            \
         map[#name] = std::move(name);                                            \
     }
@@ -220,9 +220,9 @@ class InferenceMemoryNLP : public InferenceMemory
 {
   public:
     InferenceMemoryNLP(size_t count,
-                       neo::TensorObject input_ids,
-                       neo::TensorObject input_mask,
-                       neo::TensorObject seq_ids) :
+                       DeviceTensorView input_ids,
+                       DeviceTensorView input_mask,
+                       DeviceTensorView seq_ids) :
       InferenceMemory(count)
     {
         this->inputs["input_ids"]  = std::move(input_ids);
@@ -238,7 +238,7 @@ class InferenceMemoryNLP : public InferenceMemory
 class InferenceMemoryFIL : public InferenceMemory
 {
   public:
-    InferenceMemoryFIL(size_t count, neo::TensorObject input__0, neo::TensorObject seq_ids) : InferenceMemory(count)
+    InferenceMemoryFIL(size_t count, DeviceTensorView input__0, DeviceTensorView seq_ids) : InferenceMemory(count)
     {
         this->inputs["input__0"] = std::move(input__0);
         this->inputs["seq_ids"]  = std::move(seq_ids);
@@ -297,9 +297,9 @@ class MultiMessage
         // self.meta.df.loc[self.meta.df.index[self.mess_offset:self.mess_offset + self.mess_count], columns] =
         // value
         py::gil_scoped_acquire gil;
-        auto df = meta->get_py_table();
+        auto df          = meta->get_py_table();
         auto index_slice = py::slice(py::int_(mess_offset), py::int_(mess_offset + mess_count), py::none());
-        auto col_tuple = py::tuple(py::cast(column_names));
+        auto col_tuple   = py::tuple(py::cast(column_names));
         df.attr("loc")[py::make_tuple(df.attr("index")[index_slice], col_tuple)] = value;
     }
 
@@ -359,7 +359,7 @@ class MultiInferenceMessage : public MultiMessage
     size_t offset{0};
     size_t count{0};
 
-    const neo::TensorObject get_input(const std::string& name) const
+    const DeviceTensorView get_input(const std::string& name) const
     {
         CHECK(this->memory->has_input(name)) << "Cound not find input: " << name;
 
@@ -374,7 +374,7 @@ class MultiInferenceMessage : public MultiMessage
                                                 {static_cast<cudf::size_type>(this->offset + this->count), -1});
     }
 
-    const void set_input(const std::string& name, const neo::TensorObject& value)
+    const void set_input(const std::string& name, const DeviceTensorView& value)
     {
         // Get the input slice first
         auto slice = this->get_input(name);
@@ -413,24 +413,24 @@ class MultiInferenceMessage : public MultiMessage
     }
 };
 
-#define INPUT_PROP(name)                           \
-    const neo::TensorObject get_##name() const     \
-    {                                              \
-        return this->get_input(#name);             \
-    }                                              \
-    void set_##name(const neo::TensorObject& name) \
-    {                                              \
-        this->set_input(#name, name);              \
+#define INPUT_PROP(name)                          \
+    const DeviceTensorView get_##name() const     \
+    {                                             \
+        return this->get_input(#name);            \
+    }                                             \
+    void set_##name(const DeviceTensorView& name) \
+    {                                             \
+        this->set_input(#name, name);             \
     }
 
-#define OUTPUT_PROP(name)                          \
-    const neo::TensorObject get_##name() const     \
-    {                                              \
-        return this->get_output(#name);            \
-    }                                              \
-    void set_##name(const neo::TensorObject& name) \
-    {                                              \
-        this->set_output(#name, name);             \
+#define OUTPUT_PROP(name)                         \
+    const DeviceTensorView get_##name() const     \
+    {                                             \
+        return this->get_output(#name);           \
+    }                                             \
+    void set_##name(const DeviceTensorView& name) \
+    {                                             \
+        this->set_output(#name, name);            \
     }
 
 class MultiInferenceNLPMessage : public MultiInferenceMessage
@@ -472,7 +472,7 @@ class ResponseMemory
     ResponseMemory(size_t count) : count(count) {}
 
     size_t count{0};
-    std::map<std::string, neo::TensorObject> outputs;
+    std::map<std::string, DeviceTensorView> outputs;
 
     bool has_output(const std::string& name) const
     {
@@ -483,7 +483,7 @@ class ResponseMemory
 class ResponseMemoryProbs : public ResponseMemory
 {
   public:
-    ResponseMemoryProbs(size_t count, neo::TensorObject probs) : ResponseMemory(count)
+    ResponseMemoryProbs(size_t count, DeviceTensorView probs) : ResponseMemory(count)
     {
         this->outputs["probs"] = std::move(probs);
     }
@@ -509,7 +509,7 @@ class MultiResponseMessage : public MultiMessage
     size_t offset{0};
     size_t count{0};
 
-    neo::TensorObject get_output(const std::string& name)
+    DeviceTensorView get_output(const std::string& name)
     {
         CHECK(this->memory->has_output(name)) << "Cound not find output: " << name;
 
@@ -524,7 +524,7 @@ class MultiResponseMessage : public MultiMessage
                                                  {static_cast<cudf::size_type>(this->offset + this->count), -1});
     }
 
-    const neo::TensorObject get_output(const std::string& name) const
+    const DeviceTensorView get_output(const std::string& name) const
     {
         CHECK(this->memory->has_output(name)) << "Cound not find output: " << name;
 
@@ -539,7 +539,7 @@ class MultiResponseMessage : public MultiMessage
                                                  {static_cast<cudf::size_type>(this->offset + this->count), -1});
     }
 
-    const void set_output(const std::string& name, const neo::TensorObject& value)
+    const void set_output(const std::string& name, const DeviceTensorView& value)
     {
         // Get the input slice first
         auto slice = this->get_output(name);
@@ -584,7 +584,6 @@ class MultiResponseProbsMessage : public MultiResponseMessage
         // This can only cast down
         return std::static_pointer_cast<MultiResponseProbsMessage>(this->internal_get_slice(start, stop));
     }
-
 
     OUTPUT_PROP(probs)
 };

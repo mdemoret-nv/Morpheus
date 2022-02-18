@@ -27,6 +27,7 @@
 
 #include "trtlab/cuda/sync.h"
 
+#include <morpheus/tensor.hpp>
 #include <morpheus/type_utils.hpp>
 
 namespace morpheus {
@@ -162,8 +163,6 @@ std::shared_ptr<rmm::device_buffer> transpose(const DevMemInfo& input, size_t ro
     return output;
 }
 
-
-
 struct matx_create_seg_ids
 {
     size_t element_count;
@@ -204,6 +203,71 @@ std::shared_ptr<rmm::device_buffer> create_seg_ids(size_t row_count, size_t fea_
     cudf::type_dispatcher(cudf::data_type{output_dtype.cudf_type_id()},
                           matx_create_seg_ids{row_count, fea_len, output->stream()},
                           output->data());
+
+    return output;
+}
+
+struct matx_threshold
+{
+    size_t rows;
+    size_t cols;
+    rmm::cuda_stream_view stream;
+
+    template <typename InputT, std::enable_if_t<!cudf::is_floating_point<InputT>()>* = nullptr>
+    void operator()(void* input_data, void* output_data, double threshold)
+    {
+        throw std::invalid_argument("Unsupported conversion");
+    }
+
+    template <typename InputT, std::enable_if_t<cudf::is_floating_point<InputT>()>* = nullptr>
+    void operator()(void* input_data, void* output_data, double threshold)
+    {
+        matx::tensorShape_t<2> input_shape({static_cast<matx::index_t>(rows), static_cast<matx::index_t>(cols)});
+
+        // Output is always 1 column
+        matx::tensorShape_t<1> output_shape({static_cast<matx::index_t>(rows)});
+
+        matx::tensor_t<InputT, 2> input_tensor(static_cast<InputT*>(input_data), input_shape);
+
+        // // Tmp array to hold > threshold value
+        // matx::tensor_t<InputT, 1> tmp_tensor(output_shape);
+
+        // // Calc above a threshold
+        // (tmp_tensor = input_tensor >= (InputT)threshold).run(stream.value());
+
+        // matx::tensor_t<bool, 1> output_tensor(static_cast<bool*>(output_data), output_shape);
+
+        // // Columnwise reduction
+        // matx::any(output_tensor, tmp_tensor, stream.value());
+
+        // Tmp array to hold max value
+        matx::tensor_t<InputT, 1> max_tensor(output_shape);
+
+        // row-wise reduction
+        matx::rmax(max_tensor, input_tensor, stream.value());
+
+        matx::tensor_t<bool, 1> output_tensor(static_cast<bool*>(output_data), output_shape);
+
+        // Convert max value to bool
+        (output_tensor = max_tensor >= (InputT)threshold).run(stream.value());
+    }
+};
+
+DeviceTensorView threshold(const DeviceTensorView& input, double thresh_val)
+{
+    auto input_dtype = DType(input.dtype());
+
+    auto output = DeviceTensorView(input.tensor_like(DType::create<bool>(), {input.shape(0)}));
+
+    // Now create the output 1D array of bools
+    // auto output = std::make_shared<rmm::device_buffer>(
+    //     sizeof(bool) * rows, input.buffer->stream(), input.buffer->memory_resource());
+
+    cudf::type_dispatcher(cudf::data_type{input_dtype.cudf_type_id()},
+                          matx_threshold{input.shape(0), input.shape(1), output.stream()},
+                          input.data(),
+                          output.data(),
+                          thresh_val);
 
     return output;
 }
