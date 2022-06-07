@@ -15,7 +15,7 @@
 
 name: morpheus
 channels:
-    - local
+    # - local
     - rapidsai
     - nvidia
     - nvidia/label/dev # For pre-releases of Neo. Should still default to full releases if available

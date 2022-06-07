@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022, NVIDIA CORPORATION.
+# Copyright (c) 2021, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 import json
+import logging
 import os
-import shutil
 import typing
-import warnings
 
 import neo
+import neo.core.operators as ops
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import websockets
+import websockets.legacy.server
+
+import cudf
 
 from morpheus.config import Config
-from morpheus.messages import MultiResponseProbsMessage
+from morpheus.messages.multi_response_message import MultiResponseProbsMessage
 from morpheus.pipeline.single_port_stage import SinglePortStage
 from morpheus.pipeline.stream_pair import StreamPair
+from morpheus.utils.producer_consumer_queue import AsyncIOProducerConsumerQueue
+from morpheus.utils.producer_consumer_queue import Closed
+
+logger = logging.getLogger(__name__)
 
 
 class GenerateVizFramesStage(SinglePortStage):
@@ -34,32 +44,24 @@ class GenerateVizFramesStage(SinglePortStage):
 
     Parameters
     ----------
-    c : `morpheus.config.Config`
-        Pipeline configuration instance.
+    c : morpheus.config.Config
+        Pipeline configuration instance
     out_dir : str
-        Output directory to write visualization frames.
+        Output directory to write visualization frames
     overwrite : bool
-        Overwrite file if exists.
+        Overwrite file if exists
 
     """
 
-    def __init__(self, c: Config, out_dir: str = "./viz_frames", overwrite: bool = False):
+    def __init__(self, c: Config, server_url: str = "localhost", server_port: int = 8765):
         super().__init__(c)
 
-        self._out_dir = out_dir
-        self._overwrite = overwrite
-
-        if (os.path.exists(self._out_dir)):
-            if (self._overwrite):
-                shutil.rmtree(self._out_dir)
-            elif (len(list(os.listdir(self._out_dir))) > 0):
-                warnings.warn(("Viz output directory '{}' already exists. "
-                               "Errors will occur if frames try to be written over existing files. "
-                               "Suggest emptying the directory or setting `overwrite=True`").format(self._out_dir))
-
-        os.makedirs(self._out_dir, exist_ok=True)
+        self._server_url = server_url
+        self._server_port = server_port
 
         self._first_timestamp = -1
+        self._buffers = []
+        self._buffer_queue: AsyncIOProducerConsumerQueue = None
 
     @property
     def name(self) -> str:
@@ -71,8 +73,8 @@ class GenerateVizFramesStage(SinglePortStage):
 
         Returns
         -------
-        typing.Tuple[`morpheus.pipeline.messages.MultiResponseProbsMessage`, ]
-            Accepted input types.
+        typing.Tuple[morpheus.pipeline.messages.MultiResponseProbsMessage, ]
+            Accepted input types
 
         """
         return (MultiResponseProbsMessage, )
@@ -80,17 +82,17 @@ class GenerateVizFramesStage(SinglePortStage):
     @staticmethod
     def round_to_sec(x):
         """
-        Round to even seconds second.
+        Round to even seconds second
 
         Parameters
         ----------
         x : int/float
-            Rounding up the value.
+            Rounding up the value
 
         Returns
         -------
         int
-            Value rounded up.
+            Value rounded up
 
         """
         return int(round(x / 1000.0) * 1000)
@@ -155,21 +157,108 @@ class GenerateVizFramesStage(SinglePortStage):
 
         in_df.to_csv(fn, columns=["timestamp", "src_ip", "dest_ip", "src_port", "dest_port", "si", "data"])
 
+    def _write_batch(self, x):
+        pass
+
+    async def start_async(self):
+
+        loop = asyncio.get_event_loop()
+        self._loop = loop
+
+        self._buffer_queue = AsyncIOProducerConsumerQueue(maxsize=8, loop=loop)
+
+        async def echo(websocket: websockets.legacy.server.WebSocketServerProtocol):
+
+            logger.info("Got connection from: {}:{}".format(*websocket.remote_address))
+
+            websocket.
+
+            while True:
+                try:
+                    next_buffer = await self._buffer_queue.get()
+
+                    await websocket.send(next_buffer.to_pybytes())
+                except Closed:
+                    break
+                except Exception as ex:
+                    logger.exception("Error occurred trying to send message over socket", exc_info=ex)
+
+            logger.info("Disconnected from: {}:{}".format(*websocket.remote_address))
+
+        async def run_server():
+
+            async with websockets.serve(echo, self._server_url, self._server_port):
+                logger.info("Websocket server running at: '{}:{}'".format(self._server_url, self._server_port))
+                await self._server_close_event.wait()
+
+                logger.info("Shutting down server")
+
+            logger.info("Server shut down. Is queue empty: {}".format(self._buffer_queue.empty()))
+
+        self._server_task = loop.create_task(run_server())
+
+        self._server_close_event = asyncio.Event(loop=loop)
+
+        await asyncio.sleep(1.0)
+
+        return await super().start_async()
+
+    async def _stop_server(self):
+
+        logger.info("Shutting down server")
+
+        await self._buffer_queue.close()
+
+        self._server_close_event.set()
+
+        # Wait for it to
+        await self._server_task
+
     def _build_single(self, seg: neo.Segment, input_stream: StreamPair) -> StreamPair:
 
         stream = input_stream[0]
 
-        # Convert stream to dataframes
-        stream = stream.map(self._to_vis_df)  # Convert group to dataframe
+        def node_fn(input, output):
 
-        # Flatten the list of tuples
-        stream = stream.flatten()
+            def write_batch(x: MultiResponseProbsMessage):
 
-        # Partition by group times
-        stream = stream.partition(10000, timeout=10, key=lambda x: x[0])  # Group
-        # stream = stream.filter(lambda x: len(x) > 0)
+                have_connection
 
-        stream.sink(self._write_viz_file)
 
-        # Return input unchanged
+                sink = pa.BufferOutputStream()
+
+                df = x.get_meta(["src_ip", "dest_ip", "secret_keys"])
+
+                out_df = cudf.DataFrame()
+
+                out_df["src"] = df["src_ip"].str.ip_to_int().astype(np.int32)
+                out_df["dst"] = df["dest_ip"].str.ip_to_int().astype(np.int32)
+                out_df["lvl"] = df["secret_keys"].astype(np.int32)
+
+                array_table = out_df.to_arrow()
+
+                with pa.ipc.new_stream(sink, array_table.schema) as writer:
+                    writer.write(array_table)
+
+                out_buf = sink.getvalue()
+
+                # Enqueue the buffer and block until that completes
+                asyncio.run_coroutine_threadsafe(self._buffer_queue.put(out_buf), loop=self._loop).result()
+
+            input.pipe(ops.map(write_batch)).subscribe(output)
+
+            logger.info("Gen-viz stage completed. Waiting for shutdown")
+
+            shutdown_future = asyncio.run_coroutine_threadsafe(self._stop_server(), loop=self._loop)
+
+            shutdown_future.result(timeout=2.0)
+
+            logger.info("Gen-viz shutdown complete")
+
+        # Sink to file
+        to_file = seg.make_node_full(self.unique_name, node_fn)
+        seg.make_edge(stream, to_file)
+        stream = to_file
+
+        # Return input unchanged to allow passthrough
         return input_stream

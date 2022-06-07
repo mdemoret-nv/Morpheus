@@ -1303,12 +1303,8 @@ def to_kafka(ctx: click.Context, **kwargs):
 
 
 @click.command(short_help="Write out vizualization data frames", deprecated=True, **command_kwargs)
-@click.option('--out_dir',
-              type=click.Path(dir_okay=True, file_okay=False),
-              default="./viz_frames",
-              required=True,
-              help="")
-@click.option('--overwrite', is_flag=True, help="")
+@click.option('--server_url', type=str, required=True, default="localhost", help="Websocket server IP address")
+@click.option('--server_port', type=int, required=True, default=8765, help="Websocket server IP address")
 @prepare_command()
 def gen_viz(ctx: click.Context, **kwargs):
 

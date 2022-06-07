@@ -52,6 +52,9 @@ class Stage(_pipeline.StreamWrapper):
         """
         pass
 
+    async def start_async(self):
+        pass
+
     def _on_complete(self, stream):
 
         logger.info("Stage Complete: {}".format(self.name))
