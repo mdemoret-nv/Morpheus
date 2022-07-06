@@ -21,6 +21,7 @@
 #include <morpheus/stages/file_source.hpp>
 #include <morpheus/stages/filter_detection.hpp>
 #include <morpheus/stages/kafka_source.hpp>
+// #include <morpheus/stages/monitor.hpp>
 #include <morpheus/stages/preprocess_fil.hpp>
 #include <morpheus/stages/preprocess_nlp.hpp>
 #include <morpheus/stages/serialize.hpp>
@@ -87,7 +88,11 @@ PYBIND11_MODULE(stages, m)
              py::arg("builder"),
              py::arg("name"),
              py::arg("filename"),
-             py::arg("repeat"));
+             py::arg("repeat"))
+        .def("get_total_lines", [](srf::segment::Object<FileSourceStage>& self) {
+            // Return the objects property
+            return self.object().get_total_lines();
+        });
 
     py::class_<srf::segment::Object<FilterDetectionsStage>,
                srf::segment::ObjectProperties,
@@ -169,6 +174,21 @@ PYBIND11_MODULE(stages, m)
              py::arg("filename"),
              py::arg("mode")      = "w",
              py::arg("file_type") = 0);  // Setting this to FileTypes::AUTO throws a conversion error at runtime
+
+    // py::class_<srf::segment::Object<MonitorStage<pybind11::object>>,
+    //            srf::segment::ObjectProperties,
+    //            std::shared_ptr<srf::segment::Object<MonitorStage<pybind11::object>>>>(
+    //     m, "MonitorStage", py::multiple_inheritance())
+    //     .def(py::init<>(&MonitorStageInterfaceProxy::init),
+    //          py::arg("builder"),
+    //          py::arg("name"),
+    //          py::arg("input_type"),
+    //          py::arg("description"),
+    //          py::arg("smoothing"),
+    //          py::arg("unit"),
+    //          py::arg("delayed_start"))
+    //     .def("get_throughput",
+    //          [](srf::segment::Object<MonitorStageBase>& self) { return self.object().get_throughput(); });
 
 #ifdef VERSION_INFO
     m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);

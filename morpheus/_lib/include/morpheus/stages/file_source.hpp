@@ -41,6 +41,8 @@ class FileSourceStage : public srf::pysrf::PythonSource<std::shared_ptr<MessageM
 
     FileSourceStage(std::string filename, int repeat = 1);
 
+    size_t get_total_lines() const;
+
   private:
     subscriber_fn_t build();
     /**
@@ -50,6 +52,7 @@ class FileSourceStage : public srf::pysrf::PythonSource<std::shared_ptr<MessageM
 
     std::string m_filename;
     int m_repeat{1};
+    size_t m_total_lines{0};
 };
 
 /****** FileSourceStageInterfaceProxy***********************/

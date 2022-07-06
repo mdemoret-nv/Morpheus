@@ -84,6 +84,8 @@ class FileSourceStage(SingleOutputSource):
         self._iterative = iterative
         self._repeat_count = repeat
 
+        self._cpp_stage: _stages.FileSourceStage = None
+
     @property
     def name(self) -> str:
         return "from-file"
@@ -91,6 +93,10 @@ class FileSourceStage(SingleOutputSource):
     @property
     def input_count(self) -> int:
         """Return None for no max intput count"""
+
+        if (self._cpp_stage is not None):
+            return self._cpp_stage.get_total_lines()
+
         return self._input_count
 
     def supports_cpp_node(self):
@@ -100,6 +106,7 @@ class FileSourceStage(SingleOutputSource):
 
         if self._build_cpp_node():
             out_stream = _stages.FileSourceStage(builder, self.unique_name, self._filename, self._repeat_count)
+            self._cpp_stage = out_stream
         else:
             out_stream = builder.make_source(self.unique_name, self._generate_frames())
 

@@ -48,6 +48,11 @@ FileSourceStage::FileSourceStage(std::string filename, int repeat) :
   m_repeat(repeat)
 {}
 
+size_t FileSourceStage::get_total_lines() const
+{
+    return m_total_lines;
+}
+
 FileSourceStage::subscriber_fn_t FileSourceStage::build()
 {
     return [this](rxcpp::subscriber<source_type_t> output) {
@@ -85,6 +90,8 @@ FileSourceStage::subscriber_fn_t FileSourceStage::build()
         // Always push at least 1
         output.on_next(meta);
 
+        m_total_lines += meta->count();
+
         for (cudf::size_type repeat_idx = 1; repeat_idx < m_repeat; ++repeat_idx)
         {
             // Clone the previous meta object
@@ -104,6 +111,8 @@ FileSourceStage::subscriber_fn_t FileSourceStage::build()
             }
 
             output.on_next(meta);
+
+            m_total_lines += meta->count();
         }
 
         output.on_completed();
@@ -166,4 +175,5 @@ std::shared_ptr<srf::segment::Object<FileSourceStage>> FileSourceStageInterfaceP
 
     return stage;
 }
+
 }  // namespace morpheus
