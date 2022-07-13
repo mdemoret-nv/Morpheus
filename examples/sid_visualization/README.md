@@ -88,6 +88,17 @@ yarn start
 
 ### Running Morpheus
 
+Before launching Morpheus, ensure Triton is running:
+
+```bash
+# Download the model data
+./scripts/fetch_data.py fetch models
+
+docker run --rm -ti --gpus=all -p8000:8000 -p8001:8001 -p8002:8002 -v $PWD/models:/models nvcr.io/nvidia/tritonserver:22.02-py3 \
+   tritonserver --model-repository=/models/triton-model-repo --exit-on-error=false --model-control-mode=explicit \
+      --load-model sid-minibert-onnx
+```
+
 After the GUI has been launched, Morpheus now needs to be started. In the same shell used to build Morpheus (the one running the Morpheus Dev container), run the following:
 
 ```bash
