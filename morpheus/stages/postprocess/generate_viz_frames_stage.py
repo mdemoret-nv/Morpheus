@@ -23,8 +23,8 @@ import pandas as pd
 import pyarrow as pa
 import srf
 import srf.core.operators as ops
-import websockets
 import websockets.legacy.server
+from websockets.server import serve
 
 import cudf
 
@@ -160,9 +160,6 @@ class GenerateVizFramesStage(SinglePortStage):
 
         in_df.to_csv(fn, columns=["timestamp", "src_ip", "dest_ip", "src_port", "dest_port", "si", "data"])
 
-    def _write_batch(self, x):
-        pass
-
     async def start_async(self):
 
         loop = asyncio.get_event_loop()
@@ -170,11 +167,9 @@ class GenerateVizFramesStage(SinglePortStage):
 
         self._buffer_queue = AsyncIOProducerConsumerQueue(maxsize=8, loop=loop)
 
-        async def echo(websocket: websockets.legacy.server.WebSocketServerProtocol):
+        async def client_connected(websocket: websockets.legacy.server.WebSocketServerProtocol):
 
             logger.info("Got connection from: {}:{}".format(*websocket.remote_address))
-
-            websocket.
 
             while True:
                 try:
@@ -190,8 +185,9 @@ class GenerateVizFramesStage(SinglePortStage):
 
         async def run_server():
 
-            async with websockets.serve(echo, self._server_url, self._server_port):
+            async with serve(client_connected, self._server_url, self._server_port, logger=logger):
                 logger.info("Websocket server running at: '{}:{}'".format(self._server_url, self._server_port))
+
                 await self._server_close_event.wait()
 
                 logger.info("Shutting down server")
@@ -217,16 +213,13 @@ class GenerateVizFramesStage(SinglePortStage):
         # Wait for it to
         await self._server_task
 
-    def _build_single(self, seg: neo.Segment, input_stream: StreamPair) -> StreamPair:
+    def _build_single(self, seg: srf.Builder, input_stream: StreamPair) -> StreamPair:
 
         stream = input_stream[0]
 
         def node_fn(input, output):
 
             def write_batch(x: MultiResponseProbsMessage):
-
-                have_connection
-
 
                 sink = pa.BufferOutputStream()
 
