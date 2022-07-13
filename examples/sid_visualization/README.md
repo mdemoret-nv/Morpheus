@@ -65,6 +65,9 @@ morpheus --version
 
 # Ensure the data has been downloaded
 ./scripts/fetch_data.py fetch examples
+
+# Install an extra dependencies
+pip install websockets
 ```
 
 **Note: ** Keep the shell running the Morpheus Dev container running. It will be used later to start Morpheus.
@@ -91,7 +94,7 @@ After the GUI has been launched, Morpheus now needs to be started. In the same s
 morpheus --log_level=DEBUG \
    run --num_threads=1 --pipeline_batch_size=1024 --model_max_batch_size=32 --edge_buffer_size=4 --use_cpp=False \
       pipeline-nlp --model_seq_length=256 \
-         from-file --filename=/home/mdemoret/Repos/morpheus/data/EBC_demo_data/group1-benign-2nodes.jsonlines \
+         from-file --filename=examples/data/sid_visualization/group1-benign-2nodes.jsonlines \
          deserialize \
          preprocess --vocab_hash_file=morpheus/data/bert-base-uncased-hash.txt --truncation=True --do_lower_case=True --add_special_tokens=False \
          inf-triton --model_name=sid-minibert-onnx --server_url=localhost:8001 --force_convert_inputs=True \

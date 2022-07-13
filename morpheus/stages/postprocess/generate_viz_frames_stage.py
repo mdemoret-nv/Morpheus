@@ -185,7 +185,7 @@ class GenerateVizFramesStage(SinglePortStage):
 
         async def run_server():
 
-            async with serve(client_connected, self._server_url, self._server_port, logger=logger):
+            async with serve(client_connected, self._server_url, self._server_port):
                 logger.info("Websocket server running at: '{}:{}'".format(self._server_url, self._server_port))
 
                 await self._server_close_event.wait()
