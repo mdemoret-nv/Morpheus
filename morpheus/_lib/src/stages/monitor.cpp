@@ -35,6 +35,13 @@ namespace morpheus {
 //     CHECK(m_idx2label.size() <= m_num_class_labels) << "idx2label should represent a subset of the class_labels";
 // }
 
+MonitorStageBase::MonitorStageBase(std::string description, float smoothing, std::string unit, bool delayed_start) :
+  m_description(std::move(description)),
+  m_smoothing(smoothing),
+  m_unit(std::move(unit)),
+  m_delayed_start(delayed_start)
+{}
+
 float MonitorStageBase::get_throughput() const
 {
     return 0.0;
@@ -103,16 +110,15 @@ float MonitorStageBase::get_throughput() const
 // }
 
 // ************ MonitorStageInterfaceProxy ************* //
-std::shared_ptr<srf::segment::Object<MonitorStage<pybind11::object>>> MonitorStageInterfaceProxy::init(
-    srf::segment::Builder& builder,
-    const std::string& name,
-    pybind11::type input_type,
-    std::string description,
-    float smoothing,
-    std::string unit,
-    bool delayed_start)
+std::shared_ptr<srf::segment::Object<MonitorStageBase>> MonitorStageInterfaceProxy::init(srf::segment::Builder& builder,
+                                                                                         const std::string& name,
+                                                                                         pybind11::type input_type,
+                                                                                         std::string description,
+                                                                                         float smoothing,
+                                                                                         std::string unit,
+                                                                                         bool delayed_start)
 {
-    std::shared_ptr<srf::segment::Object<MonitorStage<pybind11::object>>> stage;
+    std::shared_ptr<srf::segment::Object<MonitorStageBase>> stage;
 
     auto type_info = pybind11::detail::get_type_info((PyTypeObject*)input_type.ptr());
 
@@ -123,8 +129,9 @@ std::shared_ptr<srf::segment::Object<MonitorStage<pybind11::object>>> MonitorSta
     else
     {
         // This is a plain old python type
-        stage =
-            builder.construct_object<MonitorStage<pybind11::object>>(name, description, smoothing, unit, delayed_start);
+        stage = srf::segment::dynamic_object_cast<MonitorStageBase>(
+            builder.construct_object<MonitorStage<pybind11::object>>(
+                name, description, smoothing, unit, delayed_start, nullptr));
     }
 
     return stage;

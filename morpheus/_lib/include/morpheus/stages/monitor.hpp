@@ -26,6 +26,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 namespace morpheus {
 
@@ -62,7 +63,11 @@ class MonitorStage : public MonitorStageBase, public srf::pysrf::PythonNode<T, T
     using typename base_t::subscribe_fn_t;
     using count_fn_t = std::function<size_t(const T &)>;
 
-    MonitorStage(std::string description, float smoothing, std::string unit, bool delayed_start, count_fn_t count_fn);
+    MonitorStage(std::string description, float smoothing, std::string unit, bool delayed_start, count_fn_t count_fn) :
+      MonitorStageBase(description, smoothing, unit, delayed_start),
+      base_t(build_operator()),
+      m_count_fn(count_fn)
+    {}
 
   private:
     stream_fn_t build_operator()
@@ -89,13 +94,13 @@ struct MonitorStageInterfaceProxy
     /**
      * @brief Create and initialize a MonitorStage, and return the result.
      */
-    static std::shared_ptr<srf::segment::Object<MonitorStage<pybind11::object>>> init(srf::segment::Builder &builder,
-                                                                                      const std::string &name,
-                                                                                      pybind11::type input_type,
-                                                                                      std::string description,
-                                                                                      float smoothing,
-                                                                                      std::string unit,
-                                                                                      bool delayed_start);
+    static std::shared_ptr<srf::segment::Object<MonitorStageBase>> init(srf::segment::Builder &builder,
+                                                                        const std::string &name,
+                                                                        pybind11::type input_type,
+                                                                        std::string description,
+                                                                        float smoothing,
+                                                                        std::string unit,
+                                                                        bool delayed_start);
 };
 
 #pragma GCC visibility pop
