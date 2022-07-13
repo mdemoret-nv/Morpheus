@@ -14,6 +14,7 @@
 
 import logging
 import os
+import typing
 import warnings
 from functools import update_wrapper
 
@@ -71,6 +72,48 @@ class AliasedGroup(click.Group):
         except KeyError:
             pass
         return super().get_command(ctx, cmd_name)
+
+
+class MorpheusRelativePath(click.Path):
+    """
+    A specialization of the `click.Path` class that falls back to using package relative paths if the file cannot be
+    found. Takes the exact same parameters as `click.Path`
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Append "data" to the name so it can be different than normal click.Path
+        self.name = "data " + self.name
+
+    def convert(self,
+                value: typing.Any,
+                param: typing.Optional["click.Parameter"],
+                ctx: typing.Optional["click.Context"]) -> typing.Any:
+
+        # First check if the path is relative
+        if (not os.path.isabs(value)):
+
+            # See if the file exists.
+            does_exist = os.path.exists(value)
+
+            if (not does_exist):
+                # If it doesnt exist, then try to make it relative to the morpheus library root
+                morpheus_root = os.path.dirname(morpheus.__file__)
+
+                value_abs_to_root = os.path.join(morpheus_root, value)
+
+                # If the file relative to our package exists, use that instead
+                if (os.path.exists(value_abs_to_root)):
+                    logger.debug(("Parameter, '%s', with relative path, '%s', does not exist. "
+                                  "Using package relative location: '%s'"),
+                                 param.name,
+                                 value,
+                                 value_abs_to_root)
+
+                    return super().convert(value_abs_to_root, param, ctx)
+
+        return super().convert(value, param, ctx)
 
 
 def _without_empty_args(passed_args):
@@ -325,8 +368,8 @@ def run(ctx: click.Context, **kwargs):
                     "do_truncate == False, there will be multiple returned sequences containing the "
                     "overflowing token-ids. Default value is 256"))
 @click.option('--labels_file',
-              default=os.path.join(morpheus.DATA_DIR, "labels_nlp.txt"),
-              type=click.Path(dir_okay=False, exists=True, file_okay=True),
+              default="data/labels_nlp.txt",
+              type=MorpheusRelativePath(dir_okay=False, exists=True, file_okay=True, resolve_path=True),
               help=("Specifies a file to read labels from in order to convert class IDs into labels. "
                     "A label file is a simple text file where each line corresponds to a label"))
 @click.option('--viz_file',
@@ -382,13 +425,13 @@ def pipeline_nlp(ctx: click.Context, **kwargs):
               help="Number of features trained in the model")
 @click.option('--labels_file',
               default=None,
-              type=click.Path(dir_okay=False, exists=True, file_okay=True),
+              type=MorpheusRelativePath(dir_okay=False, exists=True, file_okay=True, resolve_path=True),
               help=("Specifies a file to read labels from in order to convert class IDs into labels. "
                     "A label file is a simple text file where each line corresponds to a label. "
                     "If unspecified, only a single output label is created for FIL"))
 @click.option('--columns_file',
-              default=os.path.join(morpheus.DATA_DIR, "columns_fil.txt"),
-              type=click.Path(dir_okay=False, exists=True, file_okay=True),
+              default="data/columns_fil.txt",
+              type=MorpheusRelativePath(dir_okay=False, exists=True, file_okay=True, resolve_path=True),
               help=("Specifies a file to read column features."))
 @click.option('--viz_file',
               default=None,
@@ -450,12 +493,12 @@ def pipeline_fil(ctx: click.Context, **kwargs):
              cls=AliasedGroup,
              **command_kwargs)
 @click.option('--columns_file',
-              default=os.path.join(morpheus.DATA_DIR, "columns_ae.txt"),
-              type=click.Path(dir_okay=False, exists=True, file_okay=True),
+              default="data/columns_ae.txt",
+              type=MorpheusRelativePath(dir_okay=False, exists=True, file_okay=True, resolve_path=True),
               help=(""))
 @click.option('--labels_file',
               default=None,
-              type=click.Path(dir_okay=False, exists=True, file_okay=True),
+              type=MorpheusRelativePath(dir_okay=False, exists=True, file_okay=True, resolve_path=True),
               help=("Specifies a file to read labels from in order to convert class IDs into labels. "
                     "A label file is a simple text file where each line corresponds to a label. "
                     "If unspecified, only a single output label is created for FIL"))
@@ -548,14 +591,13 @@ def post_pipeline(ctx: click.Context, *args, **kwargs):
 
     pipeline = get_pipeline_from_ctx(ctx)
 
-    if ("viz_file" in kwargs and kwargs["viz_file"] is not None):
-        pipeline.build()
+    # Run the pipeline before generating visualization to ensure the pipeline has been started
+    pipeline.run()
 
+    # TODO(MDD): Move visualization before `pipeline.run()` once Issue #230 is fixed.
+    if ("viz_file" in kwargs and kwargs["viz_file"] is not None):
         pipeline.visualize(kwargs["viz_file"], rankdir="LR")
         click.secho("Pipeline visualization saved to {}".format(kwargs["viz_file"]), fg="yellow")
-
-    # Run the pipeline
-    pipeline.run()
 
 
 @click.command(short_help="Load messages from a file", **command_kwargs)
@@ -618,6 +660,11 @@ def from_file(ctx: click.Context, **kwargs):
               is_flag=True,
               help=("Enabling this option will skip pre-filtering of json messages. "
                     "This is only useful when inputs are known to be valid json."))
+@click.option("--auto_offset_reset",
+              type=click.Choice(["earliest", "latest", "none"], case_sensitive=False),
+              default="latest",
+              help=("Sets the value for the configuration option 'auto.offset.reset'. "
+                    "See the kafka documentation for more information on the effects of each value."))
 @prepare_command()
 def from_kafka(ctx: click.Context, **kwargs):
 
@@ -662,6 +709,19 @@ def from_kafka(ctx: click.Context, **kwargs):
               default=1,
               type=click.IntRange(min=1),
               help=("Repeats the input dataset multiple times. Useful to extend small datasets for debugging."))
+@click.option('--sort_glob',
+              type=bool,
+              default=False,
+              help=("If true the list of files matching `input_glob` will be processed in sorted order."))
+@click.option('--recursive',
+              type=bool,
+              default=True,
+              help=("If true, events will be emitted for the files in subdirectories matching `input_glob`."))
+@click.option('--queue_max_size',
+              type=int,
+              default=128,
+              help=("Maximum queue size to hold the file paths to be processed that match `input_glob`."))
+@click.option('--batch_timeout', type=float, default=5.0, help=("Timeout to retrieve batch messages from the queue."))
 @prepare_command()
 def from_cloudtrail(ctx: click.Context, **kwargs):
 
@@ -828,11 +888,11 @@ def train_ae(ctx: click.Context, **kwargs):
 
 @click.command(name="preprocess", short_help="Convert messages to tokens", **command_kwargs)
 @click.option('--vocab_hash_file',
-              default=os.path.join(morpheus.DATA_DIR, "bert-base-cased-hash.txt"),
-              type=click.Path(exists=True, dir_okay=False),
+              default="data/bert-base-cased-hash.txt",
+              type=MorpheusRelativePath(exists=True, dir_okay=False, resolve_path=True),
               help=("Path to hash file containing vocabulary of words with token-ids. "
                     "This can be created from the raw vocabulary using the cudf.utils.hash_vocab_utils.hash_vocab "
-                    "function. Default value is 'data/bert-base-cased-hash.txt'"))
+                    "function."))
 @click.option('--truncation',
               default=False,
               type=bool,

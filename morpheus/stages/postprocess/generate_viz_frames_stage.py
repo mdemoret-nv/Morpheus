@@ -18,11 +18,11 @@ import logging
 import os
 import typing
 
-import neo
-import neo.core.operators as ops
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+import srf
+import srf.core.operators as ops
 import websockets
 import websockets.legacy.server
 
@@ -78,6 +78,9 @@ class GenerateVizFramesStage(SinglePortStage):
 
         """
         return (MultiResponseProbsMessage, )
+
+    def supports_cpp_node(self):
+        return False
 
     @staticmethod
     def round_to_sec(x):

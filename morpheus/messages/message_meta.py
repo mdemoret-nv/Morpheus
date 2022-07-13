@@ -16,12 +16,12 @@ import dataclasses
 
 import pandas as pd
 
-import morpheus._lib.messages as neom
+import morpheus._lib.messages as _messages
 from morpheus.messages.message_base import MessageBase
 
 
 @dataclasses.dataclass
-class MessageMeta(MessageBase, cpp_class=neom.MessageMeta):
+class MessageMeta(MessageBase, cpp_class=_messages.MessageMeta):
     """
     This is a container class to hold batch deserialized messages metadata.
 
@@ -62,3 +62,18 @@ class UserMessageMeta(MessageMeta, cpp_class=None):
 
     """
     user_id: str
+
+
+@dataclasses.dataclass
+class AppShieldMessageMeta(MessageMeta, cpp_class=None):
+    """
+    This class extends MessageMeta to also hold source corresponding to batched metadata.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input rows in dataframe.
+    source : str
+        Determines which source generated the snapshot messages.
+    """
+    source: str

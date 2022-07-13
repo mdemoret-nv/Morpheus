@@ -78,11 +78,11 @@ Our `_build_single` method remains unchanged; even though we are modifying the i
 ```python
 import typing
 
-import neo
+import srf
 
-from morpheus.pipeline.messages import MessageMeta
-from morpheus.pipeline.pipeline import SinglePortStage
-from morpheus.pipeline.pipeline import StreamPair
+from morpheus.messages.message_meta import MessageMeta
+from morpheus.pipeline.single_port_stage import SinglePortStage
+from morpheus.pipeline.stream_pair import StreamPair
 
 
 class RecipientFeaturesStage(SinglePortStage):
@@ -112,9 +112,9 @@ class RecipientFeaturesStage(SinglePortStage):
         # Return the message for the next stage
         return message
 
-    def _build_single(self, seg: neo.Segment, input_stream: StreamPair) -> StreamPair:
-        node = seg.make_node(self.unique_name, self.on_data)
-        seg.make_edge(input_stream[0], node)
+    def _build_single(self, builder: srf.Builder, input_stream: StreamPair) -> StreamPair:
+        node = builder.make_node(self.unique_name, self.on_data)
+        builder.make_edge(input_stream[0], node)
 
         return node, input_stream[1]
 ```
@@ -176,6 +176,10 @@ Let's ask Triton for some information about the `phishing-bert-onnx` model which
 
 ```shell
 curl "localhost:8000/v2/models/phishing-bert-onnx/config"
+```
+
+Output:
+```
 {"name":"phishing-bert-onnx","versions":["1"],"platform":"onnxruntime_onnx","inputs":[{"name":"input_ids","datatype":"INT64","shape":[-1,128]},{"name":"attention_mask","datatype":"INT64","shape":[-1,128]}],"outputs":[{"name":"output","datatype":"FP32","shape":[-1,2]}]}
 ```
 
@@ -185,6 +189,8 @@ From this information, we can see that the expected shape of the model inputs is
 Let's set up the paths for our input and output files. For simplicity, we assume that the `MORPHEUS_ROOT` environment variable is set to the root of the Morpheus project repository. In a production deployment, it may be more prudent to replace our usage of environment variables with command-line flags or a dedicated configuration management library.
 
 ```python
+import os
+
 import morpheus
 
 root_dir = os.environ['MORPHEUS_ROOT']
@@ -193,7 +199,7 @@ out_dir = os.environ.get('OUT_DIR', '/tmp')
 labels_file = os.path.join(morpheus.DATA_DIR, 'labels_phishing.txt')
 vocab_file = os.path.join(morpheus.DATA_DIR, 'bert-base-uncased-hash.txt')
 
-input_file = os.path.join(root_dir, 'examples/data/email.jsonlines')
+input_file = os.path.join(root_dir, 'examples/data/email_with_addresses.jsonlines')
 results_file = os.path.join(out_dir, 'detections.jsonlines')
 ```
 
@@ -203,14 +209,14 @@ To start, we will need to instantiate and set a few members of the `Config` clas
 config = Config()
 config.mode = PipelineModes.NLP
 
-config.num_threads = psutil.cpu_count()
+config.num_threads = os.cpu_count()
 config.feature_length = 128
 
 with open(labels_file) as fh:
     config.class_labels = [x.strip() for x in fh]
 ```
 
-First we set our pipeline mode to NLP. Next, we use the third-party [psutils](https://psutil.readthedocs.io/en/stable/) library to set the `num_threads` property to match the number of cores in our system.
+First we set our pipeline mode to NLP. Next, we set the `num_threads` property to match the number of cores in our system.
 
 The `feature_length` property needs to match the length of the model inputs, which we got from Triton in the previous section using the model's `/config` endpoint.
 
@@ -284,23 +290,21 @@ To explicitly set the output format we could specify the `file_type` argument to
 import logging
 import os
 
-import psutil
-
 import morpheus
 from morpheus.config import Config
 from morpheus.config import PipelineModes
 from morpheus.pipeline import LinearPipeline
-from morpheus.pipeline.general_stages import FilterDetectionsStage
-from morpheus.pipeline.general_stages import MonitorStage
-from morpheus.pipeline.inference.inference_triton import TritonInferenceStage
-from morpheus.pipeline.input.from_file import FileSourceStage
-from morpheus.pipeline.output.serialize import SerializeStage
-from morpheus.pipeline.output.to_file import WriteToFileStage
-from morpheus.pipeline.preprocessing import DeserializeStage
-from morpheus.pipeline.preprocessing import PreprocessNLPStage
+from morpheus.stages.general.monitor_stage import MonitorStage
+from morpheus.stages.inference.triton_inference_stage import TritonInferenceStage
+from morpheus.stages.input.file_source_stage import FileSourceStage
+from morpheus.stages.output.write_to_file_stage import WriteToFileStage
+from morpheus.stages.postprocess.filter_detections_stage import FilterDetectionsStage
+from morpheus.stages.postprocess.serialize_stage import SerializeStage
+from morpheus.stages.preprocess.deserialize_stage import DeserializeStage
+from morpheus.stages.preprocess.preprocess_nlp_stage import PreprocessNLPStage
 from morpheus.utils.logging import configure_logging
 
-from recipient_feature_stage import RecipientFeaturesStage
+from recipient_features_stage import RecipientFeaturesStage
 
 def run_pipeline():
     # Enable the default logger
@@ -313,7 +317,7 @@ def run_pipeline():
     labels_file = os.path.join(morpheus.DATA_DIR, 'labels_phishing.txt')
     vocab_file = os.path.join(morpheus.DATA_DIR, 'bert-base-uncased-hash.txt')
 
-    input_file = os.path.join(root_dir, 'examples/data/email.jsonlines')
+    input_file = os.path.join(root_dir, 'examples/data/email_with_addresses.jsonlines')
     results_file = os.path.join(out_dir, 'detections.jsonlines')
 
     # It's necessary to configure the pipeline for NLP mode
@@ -321,7 +325,7 @@ def run_pipeline():
     config.mode = PipelineModes.NLP
 
     # Set the thread count to match our cpu count
-    config.num_threads = psutil.cpu_count()
+    config.num_threads = os.cpu_count()
     config.feature_length = 128
 
     with open(labels_file) as fh:
@@ -406,15 +410,15 @@ In this example, we will create a source that reads messages from a [RabbitMQ](h
 The `_build_source` method is similar to the `_build_single` method; it receives an instance of the pipeline segment and returns a `StreamPair`. However, unlike in the previous examples, source stages do not have parent stages and therefore do not receive a `StreamPair` as input. We also will no longer build our node by calling `make_node`. Instead, we will call `make_source` with the parameter `self.source_generator`, which is a method that we will define next.
 
 ```python
-def _build_source(self, seg: neo.Segment) -> StreamPair:
-    node = seg.make_source(self.unique_name, self.source_generator)
+def _build_source(self, builder: srf.Builder) -> StreamPair:
+    node = builder.make_source(self.unique_name, self.source_generator)
     return node, MessageMeta
 ```
 
-The `source_generator` method is where most of the RabbitMQ-specific code exists. Source node methods receive an instance of `neo.Subscriber` as their first argument. When we have a message that we wish to emit into the pipeline, we call the `neo.Subscriber.on_next` method.
+The `source_generator` method is where most of the RabbitMQ-specific code exists. Source node methods receive an instance of `srf.Subscriber` as their first argument. When we have a message that we wish to emit into the pipeline, we call the `srf.Subscriber.on_next` method.
 
 ```python
-def source_generator(self, subscriber: neo.Subscriber):
+def source_generator(self, subscriber: srf.Subscriber):
     try:
         while subscriber.is_subscribed():
             (method_frame, header_frame, body) = self._channel.basic_get(self._queue_name)
@@ -447,15 +451,15 @@ import time
 from datetime import timedelta
 from io import StringIO
 
-import neo
+import srf
 import pika
 
 import cudf
 
 from morpheus.config import Config
-from morpheus.pipeline.messages import MessageMeta
-from morpheus.pipeline.pipeline import SingleOutputSource
-from morpheus.pipeline.pipeline import StreamPair
+from morpheus.messages.message_meta import MessageMeta
+from morpheus.pipeline.single_output_source import SingleOutputSource
+from morpheus.pipeline.stream_pair import StreamPair
 
 logger = logging.getLogger(__name__)
 
@@ -511,11 +515,11 @@ class RabbitMQSourceStage(SingleOutputSource):
     def name(self) -> str:
         return "from-rabbitmq"
 
-    def _build_source(self, seg: neo.Segment) -> StreamPair:
-        node = seg.make_source(self.unique_name, self.source_generator)
+    def _build_source(self, builder: srf.Builder) -> StreamPair:
+        node = builder.make_source(self.unique_name, self.source_generator)
         return node, MessageMeta
 
-    def source_generator(self, subscriber: neo.Subscriber):
+    def source_generator(self, subscriber: srf.Subscriber):
         try:
             while subscriber.is_subscribed():
                 (method_frame, header_frame, body) = self._channel.basic_get(self._queue_name)
@@ -550,9 +554,9 @@ class WriteToRabbitMQStage(SinglePortStage):
 
 In our `_build_single` we will be making use of the `make_sink` method rather than `make_node` or `make_source`
 ```python
-def _build_single(self, seg: neo.Segment, input_stream: StreamPair) -> StreamPair:
-    node = seg.make_sink(self.unique_name, self.on_data, self.on_error, self.on_complete)
-    seg.make_edge(input_stream[0], node)
+def _build_single(self, builder: srf.Builder, input_stream: StreamPair) -> StreamPair:
+    node = builder.make_sink(self.unique_name, self.on_data, self.on_error, self.on_complete)
+    builder.make_edge(input_stream[0], node)
     return input_stream
 ```
 
@@ -591,15 +595,15 @@ import logging
 import typing
 from io import StringIO
 
-import neo
+import srf
 import pika
 
 import cudf
 
 from morpheus.config import Config
-from morpheus.pipeline.messages import MessageMeta
-from morpheus.pipeline.pipeline import SinglePortStage
-from morpheus.pipeline.pipeline import StreamPair
+from morpheus.messages.message_meta import MessageMeta
+from morpheus.pipeline.single_port_stage import SinglePortStage
+from morpheus.pipeline.stream_pair import StreamPair
 
 logger = logging.getLogger(__name__)
 
@@ -645,9 +649,9 @@ class WriteToRabbitMQStage(SinglePortStage):
     def accepted_types(self) -> typing.Tuple:
         return (MessageMeta, )
 
-    def _build_single(self, seg: neo.Segment, input_stream: StreamPair) -> StreamPair:
-        node = seg.make_sink(self.unique_name, self.on_data, self.on_error, self.on_complete)
-        seg.make_edge(input_stream[0], node)
+    def _build_single(self, builder: srf.Builder, input_stream: StreamPair) -> StreamPair:
+        node = builder.make_sink(self.unique_name, self.on_data, self.on_error, self.on_complete)
+        builder.make_edge(input_stream[0], node)
         return input_stream
 
     def on_data(self, message: MessageMeta):
