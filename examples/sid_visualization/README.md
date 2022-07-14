@@ -102,10 +102,12 @@ docker run --rm -ti --gpus=all -p8000:8000 -p8001:8001 -p8002:8002 -v $PWD/model
 After the GUI has been launched, Morpheus now needs to be started. In the same shell used to build Morpheus (the one running the Morpheus Dev container), run the following:
 
 ```bash
+DEMO_DATASET="examples/data/sid_visualization/group1-benign-2nodes.jsonlines"
+
 morpheus --log_level=DEBUG \
    run --num_threads=1 --pipeline_batch_size=1024 --model_max_batch_size=32 --edge_buffer_size=4 --use_cpp=False \
       pipeline-nlp --model_seq_length=256 \
-         from-file --filename=examples/data/sid_visualization/group1-benign-2nodes.jsonlines \
+         from-file --filename=${DEMO_DATASET} \
          deserialize \
          preprocess --vocab_hash_file=morpheus/data/bert-base-uncased-hash.txt --truncation=True --do_lower_case=True --add_special_tokens=False \
          inf-triton --model_name=sid-minibert-onnx --server_url=localhost:8001 --force_convert_inputs=True \
@@ -113,3 +115,16 @@ morpheus --log_level=DEBUG \
          add-class \
          gen-viz
 ```
+
+To use different datasets, replace `DEMO_DATASET` with any of the following:
+
+- `examples/data/sid_visualization/group1-benign-2nodes.jsonlines`
+  - Small scale with 2 nodes, no SID
+- `examples/data/sid_visualization/group2-benign-50nodes.jsonlines`
+  - Scale up to 50 nodes, no SID
+- `examples/data/sid_visualization/group3-si-50nodes.jsonlines`
+  - 50 nodes, with SID from a single node
+- `examples/data/sid_visualization/group4-benign-49nodes.jsonlines`
+  - Isolate bad node leaving 49 nodes, no SID
+
+Changing the dataset does not require relaunching the GUI. Simply re-run Morpheus with the new dataset and the GUI will be updated.

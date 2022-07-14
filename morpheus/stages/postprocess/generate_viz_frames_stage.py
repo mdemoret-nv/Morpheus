@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import typing
 
 import numpy as np
@@ -165,7 +166,7 @@ class GenerateVizFramesStage(SinglePortStage):
         loop = asyncio.get_event_loop()
         self._loop = loop
 
-        self._buffer_queue = AsyncIOProducerConsumerQueue(maxsize=8, loop=loop)
+        self._buffer_queue = AsyncIOProducerConsumerQueue(maxsize=2, loop=loop)
 
         async def client_connected(websocket: websockets.legacy.server.WebSocketServerProtocol):
 
@@ -190,7 +191,7 @@ class GenerateVizFramesStage(SinglePortStage):
 
                 await self._server_close_event.wait()
 
-                logger.info("Shutting down server")
+                logger.info("Server shut down")
 
             logger.info("Server shut down. Is queue empty: {}".format(self._buffer_queue.empty()))
 
@@ -247,7 +248,8 @@ class GenerateVizFramesStage(SinglePortStage):
 
             shutdown_future = asyncio.run_coroutine_threadsafe(self._stop_server(), loop=self._loop)
 
-            shutdown_future.result(timeout=2.0)
+            # Wait for shutdown. Unless we have a debugger attached
+            shutdown_future.result(timeout=2.0 if sys.gettrace() is None else None)
 
             logger.info("Gen-viz shutdown complete")
 
