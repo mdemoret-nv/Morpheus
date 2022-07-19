@@ -102,6 +102,30 @@ docker run --rm -ti --gpus=all -p8000:8000 -p8001:8001 -p8002:8002 -v $PWD/model
 After the GUI has been launched, Morpheus now needs to be started. In the same shell used to build Morpheus (the one running the Morpheus Dev container), run the following:
 
 ```bash
+python examples/sid_visualization/run.py \
+  --debug --use_cpp=False --num_threads=1 \
+  --input_file=./examples/data/sid_visualization/group1-benign-2nodes-v2.jsonlines \
+  --input_file=./examples/data/sid_visualization/group2-benign-50nodes.jsonlines \
+  --input_file=./examples/data/sid_visualization/group3-si-50nodes.jsonlines \
+  --input_file=./examples/data/sid_visualization/group4-benign-49nodes.jsonlines
+```
+
+This launch will use all of the available datasets. Each dataset will show up as one batch in the visualization. Here is a description of each dataset:
+
+- `examples/data/sid_visualization/group1-benign-2nodes.jsonlines`
+  - Small scale with 2 nodes, no SID
+- `examples/data/sid_visualization/group2-benign-50nodes.jsonlines`
+  - Scale up to 50 nodes, no SID
+- `examples/data/sid_visualization/group3-si-50nodes.jsonlines`
+  - 50 nodes, with SID from a single node
+- `examples/data/sid_visualization/group4-benign-49nodes.jsonlines`
+  - Isolate bad node leaving 49 nodes, no SID
+
+Changing the dataset does not require relaunching the GUI. Simply re-run Morpheus with the new dataset and the GUI will be updated.
+
+It's also possible to launch the demo using the Morpheus CLI using the following:
+
+```bash
 DEMO_DATASET="examples/data/sid_visualization/group1-benign-2nodes.jsonlines"
 
 morpheus --log_level=DEBUG \
@@ -116,15 +140,4 @@ morpheus --log_level=DEBUG \
          gen-viz
 ```
 
-To use different datasets, replace `DEMO_DATASET` with any of the following:
-
-- `examples/data/sid_visualization/group1-benign-2nodes.jsonlines`
-  - Small scale with 2 nodes, no SID
-- `examples/data/sid_visualization/group2-benign-50nodes.jsonlines`
-  - Scale up to 50 nodes, no SID
-- `examples/data/sid_visualization/group3-si-50nodes.jsonlines`
-  - 50 nodes, with SID from a single node
-- `examples/data/sid_visualization/group4-benign-49nodes.jsonlines`
-  - Isolate bad node leaving 49 nodes, no SID
-
-Changing the dataset does not require relaunching the GUI. Simply re-run Morpheus with the new dataset and the GUI will be updated.
+Note, this launch method is more useful for showing performance than showing capability,

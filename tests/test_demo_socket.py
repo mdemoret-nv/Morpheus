@@ -4,16 +4,17 @@ import pyarrow as pa
 import websockets
 
 
-async def hello():
-    async with websockets.connect("ws://localhost:8765") as websocket:
+def test_read_messages():
 
-        async for message in websocket:
+    async def hello():
+        async with websockets.connect("ws://localhost:8765") as websocket:
 
-            with pa.ipc.open_stream(message) as reader:
-                df = reader.read_pandas()
-                print("Got rows: {}".format(len(df)))
+            async for message in websocket:
 
-        print("Exited")
+                with pa.ipc.open_stream(message) as reader:
+                    df = reader.read_pandas()
+                    print("Got rows: {}".format(len(df)))
 
+            print("Exited")
 
-asyncio.run(hello())
+    asyncio.run(hello())

@@ -30,6 +30,7 @@ from morpheus.config import ConfigOnnxToTRT
 from morpheus.config import CppConfig
 from morpheus.config import PipelineModes
 from morpheus.config import auto_determine_bootstrap
+from morpheus.utils.file_utils import load_labels_file
 from morpheus.utils.logging import configure_logging
 
 # pylint: disable=line-too-long, import-outside-toplevel, invalid-name, global-at-module-level, unused-argument
@@ -403,9 +404,9 @@ def pipeline_nlp(ctx: click.Context, **kwargs):
     config.feature_length = kwargs["model_seq_length"]
 
     if ("labels_file" in kwargs and kwargs["labels_file"] is not None):
-        with open(kwargs["labels_file"], "r") as lf:
-            config.class_labels = [x.strip() for x in lf.readlines()]
-            logger.debug("Loaded labels file. Current labels: [%s]", str(config.class_labels))
+
+        config.class_labels = load_labels_file(kwargs["labels_file"])
+        logger.debug("Loaded labels file. Current labels: [%s]", str(config.class_labels))
 
     from morpheus.pipeline import LinearPipeline
 

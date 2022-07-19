@@ -64,6 +64,8 @@ class GenerateVizFramesStage(SinglePortStage):
         self._buffers = []
         self._buffer_queue: AsyncIOProducerConsumerQueue = None
 
+        self._replay_buffer = []
+
     @property
     def name(self) -> str:
         return "gen_viz"
@@ -172,15 +174,39 @@ class GenerateVizFramesStage(SinglePortStage):
 
             logger.info("Got connection from: {}:{}".format(*websocket.remote_address))
 
+            # # Need to get the config from the
+            # # connect_message = await websocket.recv()
+            # # connect_message: dict = json.loads(connect_message)
+            # connect_message = {"persist": True}
+
+            # # In debug mode, resend any messages
+            # for r in self._replay_buffer:
+
+            #     await websocket.send(r.to_pybytes())
+
             while True:
                 try:
                     next_buffer = await self._buffer_queue.get()
 
+                    # if (connect_message.get("persist", False)):
+                    #     self._replay_buffer.append(next_buffer)
+
                     await websocket.send(next_buffer.to_pybytes())
                 except Closed:
+
+                    # # Queue has been emptied. Shut down the server unless persist=True
+                    # if (not connect_message.get("persist", False)):
+                    #     self._server_close_event.set()
+
+                    # await websocket.send(json.dumps({"type": "complete"}))
+
                     break
                 except Exception as ex:
                     logger.exception("Error occurred trying to send message over socket", exc_info=ex)
+
+            # logger.info("All messages sent to: {}:{}. Waiting on connection close".format(*websocket.remote_address))
+
+            # await websocket.wait_closed()
 
             logger.info("Disconnected from: {}:{}".format(*websocket.remote_address))
 
@@ -205,7 +231,7 @@ class GenerateVizFramesStage(SinglePortStage):
 
     async def _stop_server(self):
 
-        logger.info("Shutting down server")
+        logger.info("Shutting down queue")
 
         await self._buffer_queue.close()
 
@@ -224,13 +250,18 @@ class GenerateVizFramesStage(SinglePortStage):
 
                 sink = pa.BufferOutputStream()
 
-                df = x.get_meta(["src_ip", "dest_ip", "secret_keys"])
+                # This is the timestamp of the earliest message
+                t0 = x.get_meta("timestamp").min()
+
+                df = x.get_meta(["timestamp", "src_ip", "dest_ip", "secret_keys", "data"])
 
                 out_df = cudf.DataFrame()
 
+                out_df["dt"] = (df["timestamp"] - t0).astype(np.int32)
                 out_df["src"] = df["src_ip"].str.ip_to_int().astype(np.int32)
                 out_df["dst"] = df["dest_ip"].str.ip_to_int().astype(np.int32)
                 out_df["lvl"] = df["secret_keys"].astype(np.int32)
+                out_df["data"] = df["data"]
 
                 array_table = out_df.to_arrow()
 
