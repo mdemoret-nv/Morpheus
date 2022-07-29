@@ -8,102 +8,75 @@ To run the demo you will need the following:
   - See the installation guide [here](https://nodejs.org/en/download/)
 - `yarn`
   - Once NodeJS is installed with NPM, run `npm install --global yarn` to install yarn
--
+- `docker-compose`
 
 ## Setup
 
-To run this demo, you will need two repos:
+To run this demo, ensure all submodules are checked out
 
 ```bash
-# Clone a Morpheus Repo fork and checkout the Demo branch
-git clone -b mdd_demo-socket https://github.com/mdemoret-nv/Morpheus.git
-
-# Clone the Demo GUI repo
-git clone -b mdd_ubuntu18.04 https://github.com/trxcllnt/morpheus-ebc.git
+git submodule update --init --recursive
 ```
 
-### Build User Interface
+### Build Morpheus Dev Container
 
-Run the following to build the GUI
+Before launching the demo, we need the dev container for Morpheus to be created:
 
 ```bash
-# Change to the GUI repo directory
-cd morpheus-ebc
+export DOCKER_IMAGE_TAG="sid-viz"
 
-# Run the following to perform a clean build (Can be skipped for incremental builds)
-rm -rf node_modules rapidsai
+# Build the dev container
+./docker/build_container_dev.sh
+```
 
-# Download and build all dependencies
-yarn bootstrap
+### Launch User Interface
 
-# Build the demo
-yarn make
+We will use docker-compose to build and run the entire demo. To launch everything, run the following from the repo root:
+
+```bash
+# Save the Morpheus repo directory
+export MORPHEUS_HOME=$(git rev-parse --show-toplevel)
+
+# Change to the example directory
+cd ${MORPHEUS_HOME}/examples/sid_visualization
+
+# Launch the containers
+docker-compose up --build -d
 ```
 
 ### Build Morpheus
 
-Run the following to build and install Morpheus
+Once docker-compose has been launched, exec into the container to build and run Morpheus:
 
 ```bash
-# Change to the Morpheus repo directory
-cd Morpheus
+# Exec into the morpheus container
+docker-compose exec morpheus bash
 
-# Build the dev container
-./docker/build_container_dev.sh
+# Inside the container, compile morpheus
+BUILD_DIR=build-docker ./scripts/compile.sh
 
-# Run the dev container
-./docker/run_container_dev.sh
-
-# Build the Morpheus library
-./scripts/compile.sh
-
-# Install the Morpheus library
-pip install -e .
+# Install morpheus with an extra dependency
+pip install -e . && pip install websockets
 
 # Verify Morpheus is installed
 morpheus --version
 
 # Ensure the data has been downloaded
 ./scripts/fetch_data.py fetch examples
-
-# Install an extra dependencies
-pip install websockets
 ```
 
 **Note: ** Keep the shell running the Morpheus Dev container running. It will be used later to start Morpheus.
 
 ## Running the Demo
 
-### Running the GUI
-
-The GUI must be launched before running Morpheus. In a different shell than the one used to build Morpheus, run the following:
-
-```bash
-# Change directory to the GUI repo
-cd morpheus-ebc
-
-# Run the GUI
-yarn start
-```
-
 ### Running Morpheus
-
-Before launching Morpheus, ensure Triton is running:
-
-```bash
-# Download the model data
-./scripts/fetch_data.py fetch models
-
-docker run --rm -ti --gpus=all -p8000:8000 -p8001:8001 -p8002:8002 -v $PWD/models:/models nvcr.io/nvidia/tritonserver:22.02-py3 \
-   tritonserver --model-repository=/models/triton-model-repo --exit-on-error=false --model-control-mode=explicit \
-      --load-model sid-minibert-onnx
-```
 
 After the GUI has been launched, Morpheus now needs to be started. In the same shell used to build Morpheus (the one running the Morpheus Dev container), run the following:
 
 ```bash
 python examples/sid_visualization/run.py \
   --debug --use_cpp=False --num_threads=1 \
+  --triton_server_url=triton:8001 \
   --input_file=./examples/data/sid_visualization/group1-benign-2nodes-v2.jsonlines \
   --input_file=./examples/data/sid_visualization/group2-benign-50nodes.jsonlines \
   --input_file=./examples/data/sid_visualization/group3-si-50nodes.jsonlines \

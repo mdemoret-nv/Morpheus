@@ -227,7 +227,7 @@ def run_pipeline(
 
     pipeline.add_stage(AddClassificationsStage(config, threshold=0.8))
 
-    pipeline.add_stage(GenerateVizFramesStage(config, server_url="localhost", server_port=8765))
+    pipeline.add_stage(GenerateVizFramesStage(config, server_url="0.0.0.0", server_port=8765))
 
     # Build pipeline
     pipeline.build()

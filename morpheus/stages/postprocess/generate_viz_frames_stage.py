@@ -54,7 +54,7 @@ class GenerateVizFramesStage(SinglePortStage):
 
     """
 
-    def __init__(self, c: Config, server_url: str = "localhost", server_port: int = 8765):
+    def __init__(self, c: Config, server_url: str = "0.0.0.0", server_port: int = 8765):
         super().__init__(c)
 
         self._server_url = server_url
@@ -212,14 +212,23 @@ class GenerateVizFramesStage(SinglePortStage):
 
         async def run_server():
 
-            async with serve(client_connected, self._server_url, self._server_port):
-                logger.info("Websocket server running at: '{}:{}'".format(self._server_url, self._server_port))
+            try:
 
-                await self._server_close_event.wait()
+                async with serve(client_connected, self._server_url, self._server_port) as server:
 
-                logger.info("Server shut down")
+                    listening_on = [":".join([str(y) for y in x.getsockname()]) for x in server.sockets]
+                    listening_on_str = [f"'{x}'" for x in listening_on]
 
-            logger.info("Server shut down. Is queue empty: {}".format(self._buffer_queue.empty()))
+                    logger.info("Websocket server listening at: {}".format(", ".join(listening_on_str)))
+
+                    await self._server_close_event.wait()
+
+                    logger.info("Server shut down")
+
+                logger.info("Server shut down. Is queue empty: {}".format(self._buffer_queue.empty()))
+            except Exception as e:
+                logger.error("Error during serve", exc_info=e)
+                raise
 
         self._server_task = loop.create_task(run_server())
 
