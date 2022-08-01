@@ -41,7 +41,7 @@ export MORPHEUS_HOME=$(git rev-parse --show-toplevel)
 cd ${MORPHEUS_HOME}/examples/sid_visualization
 
 # Launch the containers
-docker-compose up --build -d
+DOCKER_BUILDKIT=1 docker-compose up --build -d
 ```
 
 ### Build Morpheus

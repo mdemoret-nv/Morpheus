@@ -14,11 +14,12 @@ services:
     <<: *with_gpus
     command: "tritonserver --exit-on-error=false --model-control-mode=explicit --load-model sid-minibert-onnx --model-repository=/models/triton-model-repo"
     environment:
-      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
     ports:
       - "8000"
       - "8001"
       - "8002"
+    runtime: nvidia
     volumes:
       - "${MORPHEUS_HOME:-../..}/models:/models"
 
@@ -45,6 +46,7 @@ services:
       XDG_SESSION_TYPE: "${XDG_SESSION_TYPE:-}"
       XDG_RUNTIME_DIR: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR must be set}"
       DBUS_SESSION_BUS_ADDRESS: "${DBUS_SESSION_BUS_ADDRESS:?DBUS_SESSION_BUS_ADDRESS must be set}"
+    runtime: nvidia
     volumes:
       - "/etc/fonts:/etc/fonts:ro"
       - "/etc/timezone:/etc/timezone:ro"
@@ -66,10 +68,11 @@ services:
       - triton
     environment:
       BUILD_DIR: build-docker # Avoid conflicting with the host default build
-      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
     ports:
       - "8765"
     stdin_open: true
     tty: true
+    runtime: nvidia
     volumes:
       - "${MORPHEUS_HOME:-../../}:/workspace"
