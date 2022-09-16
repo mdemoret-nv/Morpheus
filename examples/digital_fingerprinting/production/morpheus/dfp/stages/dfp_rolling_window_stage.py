@@ -16,23 +16,31 @@ import dataclasses
 import logging
 import os
 import pickle
+import sqlite3
+import time
 import typing
+from collections import OrderedDict
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
-from datetime import timedelta
-from datetime import timezone
+from functools import partial
+from tkinter import S
 
+import numpy as np
 import pandas as pd
 import srf
 from srf.core import operators as ops
+from this import s
+
+import cudf
 
 from morpheus.config import Config
 from morpheus.pipeline.single_port_stage import SinglePortStage
 from morpheus.pipeline.stream_pair import StreamPair
 
-from ..messages.multi_dfp_message import DFPMessageMeta
-from ..messages.multi_dfp_message import MultiDFPMessage
 from ..utils.logging_timer import log_time
+from .multi_dfp_message import DFPMessageMeta
+from .multi_dfp_message import MultiDFPMessage
 
 # Setup conda environment
 conda_env = {
@@ -54,6 +62,7 @@ class CachedUserWindow:
     count: int = 0
     min_epoch: datetime = datetime(1970, 1, 1, tzinfo=timezone(timedelta(hours=0)))
     max_epoch: datetime = datetime(1970, 1, 1, tzinfo=timezone(timedelta(hours=0)))
+
     batch_count: int = 0
     pending_batch_count: int = 0
     last_train_count: int = 0
@@ -225,6 +234,17 @@ class DFPRollingWindowStage(SinglePortStage):
 
         user_cache = None
 
+        # if (os.path.exists(cache_location)):
+        #     try:
+
+        #         # Try to load any existing window
+        #         user_cache = CachedUserWindow.load(cache_location=cache_location)
+        #     except:
+        #         logger.warning("Error loading window cache at %s", cache_location, exc_info=True)
+
+        #         # Delete the existing file to prevent this from happening again
+        #         os.remove(cache_location)
+
         user_cache = self._user_cache_map.get(user_id, None)
 
         if (user_cache is None):
@@ -239,7 +259,7 @@ class DFPRollingWindowStage(SinglePortStage):
         # # When it returns, make sure to save
         # user_cache.save()
 
-    def _build_window(self, message: DFPMessageMeta) -> MultiDFPMessage:
+    def _build_window(self, message: DFPMessageMeta, sql_conn: sqlite3.Connection) -> MultiDFPMessage:
 
         user_id = message.user_id
 
@@ -254,6 +274,31 @@ class DFPRollingWindowStage(SinglePortStage):
                              "Consider deleting the rolling window cache and restarting."))
                 return None
 
+            # # For the incoming one, calculate the row hash to identify duplicate rows
+            # incoming_df["_row_hash"] = pd.util.hash_pandas_object(incoming_df)
+
+            # # Concat the incoming data with the old data
+            # concat_df = pd.concat([existing_df, incoming_df])
+
+            # # Drop any duplicates (only really happens when debugging)
+            # concat_df = concat_df.drop_duplicates(subset=["_row_hash"], keep='first')
+
+            # # Save the number of new rows here
+            # new_row_count = len(concat_df) - len(existing_df)
+
+            # # Finally, ensure we are sorted. This also resets the index
+            # concat_df.sort_values(self._config.ae.timestamp_column_name, inplace=True, ignore_index=True)
+
+            # # Trim based on the rolling criteria
+            # concat_df = self._trim_dataframe(concat_df)
+
+            # # Update cache object
+            # user_cache.set_dataframe(concat_df,
+            #                          new_row_count=new_row_count,
+            #                          timestamp_column=self._config.ae.timestamp_column_name)
+
+            # current_df_count = len(concat_df)
+
             # Exit early if we dont have enough data
             if (user_cache.count < self._min_history):
                 return None
@@ -261,6 +306,11 @@ class DFPRollingWindowStage(SinglePortStage):
             # We have enough data, but has enough time since the last training taken place?
             if (user_cache.total_count - user_cache.last_train_count < self._min_increment):
                 return None
+
+            test_df = pd.read_sql(f"SELECT * FROM user_data WHERE username=='{user_id}'",
+                                  con=sql_conn,
+                                  index_col="index",
+                                  parse_dates=["timestamp"])
 
             # Save the last train statistics
             train_df = user_cache.get_train_df(max_history=self._max_history)
@@ -290,11 +340,11 @@ class DFPRollingWindowStage(SinglePortStage):
                                    mess_offset=train_offset,
                                    mess_count=found_count)
 
-    def on_data(self, message: DFPMessageMeta):
+    def on_data(self, message: DFPMessageMeta, sql_conn: sqlite3.Connection):
 
         with log_time(logger.debug) as log_info:
 
-            result = self._build_window(message)
+            result = self._build_window(message, sql_conn=sql_conn)
 
             if (result is not None):
 
@@ -318,7 +368,11 @@ class DFPRollingWindowStage(SinglePortStage):
     def _build_single(self, builder: srf.Builder, input_stream: StreamPair) -> StreamPair:
 
         def node_fn(obs: srf.Observable, sub: srf.Subscriber):
-            obs.pipe(ops.map(self.on_data), ops.filter(lambda x: x is not None)).subscribe(sub)
+
+            sql_conn = sqlite3.connect("file:rolling_window.db?mode=rwc", uri=True)
+
+            obs.pipe(ops.map(partial(self.on_data, sql_conn=sql_conn)),
+                     ops.filter(lambda x: x is not None)).subscribe(sub)
 
         stream = builder.make_node_full(self.unique_name, node_fn)
         builder.make_edge(input_stream[0], stream)
