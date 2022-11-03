@@ -27,6 +27,7 @@ import cupy as cp
 import numpy as np
 import srf
 import tritonclient.grpc as tritonclient
+import tritonclient.http as tritonclient_http
 from tritonclient.utils import InferenceServerException
 from tritonclient.utils import triton_to_np_dtype
 
@@ -39,6 +40,7 @@ from morpheus.messages import ResponseMemory
 from morpheus.messages import ResponseMemoryProbs
 from morpheus.stages.inference.inference_stage import InferenceStage
 from morpheus.stages.inference.inference_stage import InferenceWorker
+from morpheus.utils.atomic_integer import AtomicInteger
 from morpheus.utils.producer_consumer_queue import ProducerConsumerQueue
 
 logger = logging.getLogger(__name__)
