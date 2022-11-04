@@ -104,6 +104,11 @@ InferenceClientStage::InferenceClientStage(std::string model_name,
     this->connect_with_server();  // TODO(Devin)
 }
 
+void InferenceClientStage::reset_request_id()
+{
+    m_request_counter = 0;
+}
+
 InferenceClientStage::subscribe_fn_t InferenceClientStage::build_operator()
 {
     return [this](rxcpp::observable<sink_type_t> input, rxcpp::subscriber<source_type_t> output) {
@@ -490,4 +495,10 @@ std::shared_ptr<srf::segment::Object<InferenceClientStage>> InferenceClientStage
 
     return stage;
 }
+
+void InferenceClientStageInterfaceProxy::reset_request_id()
+{
+    InferenceClientStage::reset_request_id();
+}
+
 }  // namespace morpheus
