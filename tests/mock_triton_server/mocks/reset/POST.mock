@@ -7,7 +7,7 @@ Content-Type: application/json
         this.counter=0;
     }
 
-    logger.log(`Resetting counter from ${this.counter} to 0`);
+    logger.info(`Resetting counter from ${this.counter} to 0`);
 
     // Just reset the counter value to 0
     this.counter=0;

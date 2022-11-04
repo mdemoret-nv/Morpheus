@@ -406,6 +406,9 @@ def launch_mock_triton(_camouflage_is_running):
     be useful during test development to run camouflage by hand.
     """
 
+    from morpheus.stages.inference.triton_inference_stage import reset_request_id
+    reset_request_id()
+
     # Check if we are using Camouflage or not. If so, send the reset command to reset the state
     if _camouflage_is_running:
         # Reset the mock server (necessary to set counters = 0)
@@ -414,6 +417,3 @@ def launch_mock_triton(_camouflage_is_running):
         assert r.ok, "Failed to reset Camouflage server state"
 
     yield
-
-    from morpheus.stages.inference.triton_inference_stage import reset_request_id
-    reset_request_id()
