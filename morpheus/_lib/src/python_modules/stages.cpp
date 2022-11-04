@@ -118,7 +118,7 @@ PYBIND11_MODULE(stages, m)
              py::arg("use_shared_memory"),
              py::arg("needs_logits"),
              py::arg("inout_mapping") = py::dict())
-        .def_static("reset_request_id", &InferenceClientStageInterfaceProxy::reset_request_id);
+        .def_static("reset_request_id", &InferenceClientStageInterfaceProxy::reset_request_id, py::arg("value") = 0);
 
     py::class_<srf::segment::Object<KafkaSourceStage>,
                srf::segment::ObjectProperties,

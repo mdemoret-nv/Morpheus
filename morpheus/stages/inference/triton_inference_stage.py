@@ -69,10 +69,10 @@ def _notify_dtype_once(model_name: str, input_name: str, triton_dtype: cp.dtype,
         raise RuntimeError(msg % msg_args)
 
 
-def reset_request_id():
+def reset_request_id(value=0):
     """Resets the request ID for both Python & C++ impls"""
-    _TritonInferenceWorker.reset_request_id()
-    _stages.InferenceClientStage.reset_request_id()
+    _TritonInferenceWorker.reset_request_id(value=value)
+    _stages.InferenceClientStage.reset_request_id(value=value)
 
 
 @dataclasses.dataclass()
@@ -507,8 +507,8 @@ class _TritonInferenceWorker(InferenceWorker):
         return {}
 
     @classmethod
-    def reset_request_id(cls):
-        cls.__REQUEST_COUNTER.value = 0
+    def reset_request_id(cls, value=0):
+        cls.__REQUEST_COUNTER.value = value
 
     def init(self):
         """

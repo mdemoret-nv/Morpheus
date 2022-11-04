@@ -59,7 +59,7 @@ class InferenceClientStage
                          bool needs_logits,
                          std::map<std::string, std::string> inout_mapping = {});
 
-    static void reset_request_id();
+    static void reset_request_id(size_t value);
 
   private:
     /**
@@ -113,7 +113,7 @@ struct InferenceClientStageInterfaceProxy
         bool needs_logits,
         std::map<std::string, std::string> inout_mapping);
 
-    static void reset_request_id();
+    static void reset_request_id(size_t value);
 };
 #pragma GCC visibility pop
 }  // namespace morpheus

@@ -104,9 +104,9 @@ InferenceClientStage::InferenceClientStage(std::string model_name,
     this->connect_with_server();  // TODO(Devin)
 }
 
-void InferenceClientStage::reset_request_id()
+void InferenceClientStage::reset_request_id(size_t value)
 {
-    m_request_counter = 0;
+    m_request_counter = value;
 }
 
 InferenceClientStage::subscribe_fn_t InferenceClientStage::build_operator()
@@ -240,10 +240,12 @@ InferenceClientStage::subscribe_fn_t InferenceClientStage::build_operator()
                     triton::client::InferResult *results;
 
                     // Make a copy of the options object and set the request ID
-                    auto options        = m_options;
-                    options.request_id_ = m_request_counter++;
+                    auto options = m_options;
+                    const std::string reqiest_id{std::to_string(m_request_counter++)};
+                    options.request_id_ = reqiest_id;
+                    std::map<std::string, std::string> headers{{"morpheus_request_id", reqiest_id}};
 
-                    CHECK_TRITON(client->Infer(&results, options, inputs, outputs));
+                    CHECK_TRITON(client->Infer(&results, options, inputs, outputs, headers));
 
                     for (auto &model_output : m_model_outputs)
                     {
@@ -496,9 +498,9 @@ std::shared_ptr<srf::segment::Object<InferenceClientStage>> InferenceClientStage
     return stage;
 }
 
-void InferenceClientStageInterfaceProxy::reset_request_id()
+void InferenceClientStageInterfaceProxy::reset_request_id(size_t value)
 {
-    InferenceClientStage::reset_request_id();
+    InferenceClientStage::reset_request_id(value);
 }
 
 }  // namespace morpheus
