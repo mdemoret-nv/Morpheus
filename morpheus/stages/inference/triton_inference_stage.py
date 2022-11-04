@@ -14,6 +14,7 @@
 
 import base64
 import dataclasses
+import json
 import logging
 import queue
 import threading
@@ -25,6 +26,7 @@ from functools import partial
 
 import cupy as cp
 import numpy as np
+import pandas as pd
 import srf
 import tritonclient.grpc as tritonclient
 import tritonclient.http as tritonclient_http
@@ -619,11 +621,12 @@ class _TritonInferenceWorker(InferenceWorker):
 
         if (self._response_log_dataframe is not None):
 
-            assert request_id not in self._response_log_dataframe.index, "Duplicate request_id: {} detected".format(request_id)
+            assert request_id not in self._response_log_dataframe.index, "Duplicate request_id: {} detected".\
+                format(request_id)
 
             # Save the response and update the CSV. Double serialize to encode new lines
             self._response_log_dataframe.loc[int(result.get_response().id)] = json.dumps(
-                MessageToJson(result.get_response(), preserving_proto_field_name=True, indent=2))
+                tritonclient.MessageToJson(result.get_response(), preserving_proto_field_name=True, indent=2))
 
             # Sort by the index before writing
             self._response_log_dataframe.sort_index(axis=1, inplace=True)
