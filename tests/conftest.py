@@ -414,3 +414,6 @@ def launch_mock_triton(_camouflage_is_running):
         assert r.ok, "Failed to reset Camouflage server state"
 
     yield
+
+    from morpheus.stages.inference.triton_inference_stage import reset_request_id
+    reset_request_id()
