@@ -1,19 +1,27 @@
 HTTP/1.1 200 OK
 Content-Type: application/octet-stream
+{{#inject}}(()=>{
 
-{{#async_code}}(async ()=>{
-    const fs = require('fs');
-    const Q = require('q')
-
-    if(!this.counter) {
-        this.counter=0;
+    // Check for the shared state object
+    if (!this.Handlebars._nv_morpheus === undefined){
+        throw "Must call `POST /reset` endpoint before calling other methods!";
     }
 
-    this.counter+=1;
+    const counter = this.Handlebars._nv_morpheus.get_and_increment();
+    const filename = "payloads/sid/sid_infer_resp." + counter + ".body"
 
-    console.log(request);
+    logger.info(`Returning payload for counter: ${counter}, and filename: ${filename}`);
 
-    // let request_id = this.counter;
+    let inf_header_content_length = 157;
+    if (counter === 63) {
+        inf_header_content_length = 156;
+    }
+
+    // This seems like the only way to pass a variable to the file helper
+    request._nv_morpheus_params = {
+        counter,
+        filename
+    };
 
     // console.log(`Request ID: ${request_id}`);
 

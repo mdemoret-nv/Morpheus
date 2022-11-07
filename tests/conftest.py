@@ -96,6 +96,13 @@ def pytest_addoption(parser: pytest.Parser):
         help="Run kafka tests that would otherwise be skipped",
     )
 
+    parser.addoption(
+        "--run_benchmark",
+        action="store_true",
+        dest="run_benchmark",
+        help="Run benchmark tests that would otherwise be skipped",
+    )
+
 
 def pytest_generate_tests(metafunc: pytest.Metafunc):
     """
@@ -132,6 +139,10 @@ def pytest_runtest_setup(item):
     if (not item.config.getoption("--run_kafka")):
         if (item.get_closest_marker("kafka") is not None):
             pytest.skip("Skipping Kafka tests by default. Use --run_kafka to enable")
+
+    if (not item.config.getoption("--run_benchmark")):
+        if (item.get_closest_marker("benchmark") is not None):
+            pytest.skip("Skipping benchmark tests by default. Use --run_benchmark to enable")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -296,9 +307,9 @@ def wait_for_camouflage(host="localhost", port=8000, timeout=5):
                 if (r.json()['message'] == 'I am alive.'):
                     return True
                 else:
-                    warnings.warn(
-                        "Camoflage returned status 200 but had incorrect response JSON. Continuing to wait. Response JSON:\n{}"
-                        .format(r.json()))
+                    warnings.warn(("Camoflage returned status 200 but had incorrect response JSON. "
+                                   "Continuing to wait. Response JSON:\n%s"),
+                                  r.json())
 
         except Exception:
             pass
@@ -314,7 +325,7 @@ def wait_for_camouflage(host="localhost", port=8000, timeout=5):
 
 def _set_pdeathsig(sig=signal.SIGTERM):
     """
-    Helper function to ensure once parent process exits, its childrent processes will automatically die
+    Helper function to ensure once parent process exits, its child processes will automatically die
     """
 
     def prctl_fn():
@@ -364,16 +375,16 @@ def _camouflage_is_running():
 
         logging.info("Launched camouflage in %s with pid: %s", root_dir, popen.pid)
 
-        if startup_timeout > 0:
-            if not wait_for_camouflage(timeout=startup_timeout):
+        if not wait_for_camouflage(timeout=startup_timeout):
 
-                if popen.poll() is not None:
-                    raise RuntimeError("camouflage server exited with status code={} details in: {}".format(
-                        popen.poll(), os.path.join(root_dir, 'camouflage.log')))
+            if popen.poll() is not None:
+                raise RuntimeError("camouflage server exited with status code={} details in: {}".format(
+                    popen.poll(), os.path.join(root_dir, 'camouflage.log')))
 
-                raise RuntimeError("Failed to launch camouflage server")
+            raise RuntimeError("Failed to launch camouflage server")
 
-        yield is_running
+        # Must have been started by this point
+        yield True
 
         logging.info("Killing pid {}".format(popen.pid))
 
