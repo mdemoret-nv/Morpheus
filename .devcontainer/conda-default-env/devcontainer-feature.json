@@ -1,0 +1,17 @@
+{
+  "id": "conda-default-env",
+  "version": "1.0.0",
+  "name": "Conda Default Environment",
+  "description": "A cross-platform, language-agnostic binary package manager",
+  "documentationURL": "https://github.com/devcontainers/features/tree/main/src/conda",
+  "options": {
+    "condaEnvName": {
+      "type": "string",
+      "default": "morpheus",
+      "description": "Add conda-forge channel to the config?"
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}

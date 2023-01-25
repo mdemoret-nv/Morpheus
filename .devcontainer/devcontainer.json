@@ -38,45 +38,60 @@
 
     "containerEnv": {
         "HOST_MORPHEUS_ROOT": "${localWorkspaceFolder}",
-        "MORPHEUS_ROOT": "/workspaces/morpheus"
+        "MORPHEUS_ROOT": "${containerWorkspaceFolder}",
+        "PATH": "${containerEnv:PATH}:${containerWorkspaceFolder}/.devcontainer/bin"
     },
 
-    "postStartCommand": "${MORPHEUS_ROOT}/.devcontainer/bin/setup-morpheus-env",
+    "postStartCommand": "${containerWorkspaceFolder}/.devcontainer/bin/setup-morpheus-env",
 
     "initializeCommand": [ "./.devcontainer/init.sh" ],
 
-    "remoteUser": "coder",
+    "remoteUser": "${localEnv:USER}",
 
     "mounts": [
         {"type":"bind", "source": "/var/run/docker.sock", "target": "/var/run/docker.sock"},
-        {"type":"bind", "source": "${localWorkspaceFolder}/.cache/conda", "target": "/home/coder/.conda"}
+        {"type":"bind", "source": "${localWorkspaceFolder}/.cache/conda", "target": "/home/${localEnv:USER}/.conda"}
     ],
 
     "features": {
         "ghcr.io/devcontainers/features/common-utils:1": {
-            "uid": "1000",
-            "gid": "1000",
-            "username": "coder"
+            "uid": "${localEnv:UID}",
+            "gid": "${localEnv:UID}",
+            "username": "${localEnv:USER}",
+            "upgradePackages": false,
+            "installZsh": false,
+            "installOhMyZsh": false,
         },
-        "ghcr.io/devcontainers/features/docker-from-docker": {}
+        "ghcr.io/devcontainers/features/docker-from-docker": {},
+        "ghcr.io/devcontainers/features/dotnet:1": {},
+        "./conda-default-env": {},
     },
 
     "customizations": {
         "vscode": {
             "extensions": [
-				"eamodio.gitlens",
-				"llvm-vs-code-extensions.vscode-clangd",
-				"ms-python.python",
-				"ms-vscode.cpptools",
-				"ms-vscode.cmake-tools",
-				"nvidia.nsight-vscode-edition",
-				"twxs.cmake",
-				"xaver.clang-format"
+                "eamodio.gitlens",
+                "josetr.cmake-language-support-vscode",
+                "llvm-vs-code-extensions.vscode-clangd",
+                "ms-python.python",
+                "ms-vscode.cmake-tools",
+                "ms-vscode.cpptools",
+                "nvidia.nsight-vscode-edition",
+                "xaver.clang-format",
 			]
         }
     },
     "settings": {
         "C_Cpp.intelliSenseEngine": "disabled",
-        "python.terminal.activateEnvironment": false
-    }
+        "cmake.cmakePath": "cmake", // Ensure we use the default from the conda environment
+        "cmake.languageSupport.enableFileAPI": true,
+        "python.terminal.activateEnvironment": false,
+        // Fix for https://github.com/dotnet/vscode-dotnet-runtime/issues/159
+        // Once version 1.6.1 of the extension has been release, this can be removed
+        "cmake.languageSupport.dotnetPath": "/usr/bin/dotnet",
+    },
+    "overrideFeatureInstallOrder": [
+        "ghcr.io/devcontainers/features/common-utils",
+        // "./conda-default-env",
+    ]
 }

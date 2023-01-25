@@ -23,10 +23,12 @@ ENV CONDA_DIR=/opt/conda
 
 RUN wget "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh" && \
     bash Mambaforge-$(uname)-$(uname -m).sh -b -p ${CONDA_DIR} && \
-    echo ". ${CONDA_DIR}/etc/profile.d/conda.sh && conda activate base" >> /etc/skel/.bashrc && \
-    echo ". ${CONDA_DIR}/etc/profile.d/conda.sh && conda activate base" >> ~/.bashrc
+    /opt/conda/bin/conda init --system
 
 ENV PATH="${CONDA_DIR}/bin:${PATH}"
 
 ENV MAMBA_NO_BANNER=1
-ENV PATH="${PATH}:/workspaces/morpheus/.devcontainer/bin"
+
+# Update the max user watches according to
+# https://code.visualstudio.com/docs/setup/linux#_visual-studio-code-is-unable-to-watch-for-file-changes-in-this-large-workspace-error-enospc
+RUN echo "fs.inotify.max_user_watches=524288" >> /etc/sysctl.conf
