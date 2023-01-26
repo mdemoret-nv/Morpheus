@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
 import logging
 import re
 import typing
@@ -21,6 +22,16 @@ import datacompy
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass
+class CompareDataframeResults:
+    total_rows: int
+    matching_rows: int
+    diff_rows: int
+    matching_cols: typing.List[str]
+    extra_cols: typing.List[str]
+    missing_cols: typing.List[str]
 
 
 def filter_df(df: pd.DataFrame,
@@ -70,7 +81,7 @@ def compare_df(df_a: pd.DataFrame,
                rel_tol: float = 0.005,
                dfa_name: str = "val",
                dfb_name: str = "res",
-               show_report: bool = False):
+               show_report: bool = False) -> CompareDataframeResults:
     """
     Compares two pandas Dataframe, returning a comparison summary as a dict in the form of::
 
@@ -130,11 +141,9 @@ def compare_df(df_a: pd.DataFrame,
             logger.info("Results match validation dataset")
 
     # Now build the output
-    return {
-        "total_rows": total_rows,
-        "matching_rows": int(comparison.count_matching_rows()),
-        "diff_rows": diff_rows,
-        "matching_cols": list(same_columns),
-        "extra_cols": list(extra_columns),
-        "missing_cols": list(missing_columns),
-    }
+    return CompareDataframeResults(total_rows=total_rows,
+                                   matching_rows=int(comparison.count_matching_rows()),
+                                   diff_rows=diff_rows,
+                                   matching_cols=list(same_columns),
+                                   extra_cols=list(extra_columns),
+                                   missing_cols=list(missing_columns))

@@ -37,6 +37,8 @@ from morpheus.utils.type_utils import pretty_print_type_name
 
 logger = logging.getLogger(__name__)
 
+StageT = typing.TypeVar("StageT", bound=StreamWrapper)
+
 
 class Pipeline():
     """
@@ -96,7 +98,7 @@ class Pipeline():
 
         return x
 
-    def add_node(self, node: StreamWrapper, segment_id: str = "main"):
+    def add_node(self, node: StageT, segment_id: str = "main") -> StageT:
 
         assert node._pipeline is None or node._pipeline is self, "A stage can only be added to one pipeline at a time"
 
@@ -116,6 +118,8 @@ class Pipeline():
         node._pipeline = self
 
         segment_graph.add_node(node)
+
+        return node
 
     def add_edge(self,
                  start: typing.Union[StreamWrapper, Sender],

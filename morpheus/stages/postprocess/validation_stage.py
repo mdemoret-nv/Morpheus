@@ -29,6 +29,7 @@ from morpheus.cli.register_stage import register_stage
 from morpheus.config import Config
 from morpheus.io.deserializers import read_file_to_df
 from morpheus.messages import MultiMessage
+from morpheus.messages.message_meta import MessageMeta
 from morpheus.pipeline.multi_message_stage import MultiMessageStage
 from morpheus.pipeline.stream_pair import StreamPair
 from morpheus.utils import compare_df
@@ -51,7 +52,8 @@ class ValidationStage(MultiMessageStage):
     val_file_name : str
         The comparison file.
     results_file_name : str
-        Where to output a JSON containing the validation results.
+        Where to output a JSON containing the validation results. If `None`, then results will not be written out and
+        must be retrieved via `get_results()`
     overwrite : boolean, default = False, is_flag = True
         Whether to overwrite the validation results if they exist, by default False.
     include : typing.List[str], optional
@@ -76,7 +78,7 @@ class ValidationStage(MultiMessageStage):
         self,
         c: Config,
         val_file_name: str,
-        results_file_name: str,
+        results_file_name: str = None,
         overwrite: bool = False,
         include: typing.List[str] = None,
         exclude: typing.List[str] = [r'^ID$', r'^_ts_'],
@@ -96,7 +98,10 @@ class ValidationStage(MultiMessageStage):
         self._abs_tol = abs_tol
         self._rel_tol = rel_tol
 
-        if (os.path.exists(self._results_file_name)):
+        # Hold onto the results
+        self._results: compare_df.CompareDataframeResults = None
+
+        if (self._results_file_name is not None and os.path.exists(self._results_file_name)):
             if (overwrite):
                 os.remove(self._results_file_name)
             else:
@@ -118,10 +123,21 @@ class ValidationStage(MultiMessageStage):
             Accepted input types.
 
         """
-        return (MultiMessage, )
+        return (MessageMeta, MultiMessage)
 
     def supports_cpp_node(self):
         return False
+
+    def get_results(self):
+        """
+        Returns the results dictionary. This is the same dictionary that is written to results_file_name
+
+        Returns
+        -------
+        dict
+            Results dictionary
+        """
+        return self._results
 
     def _do_comparison(self, messages: typing.List[MultiMessage]):
 
@@ -137,16 +153,17 @@ class ValidationStage(MultiMessageStage):
         combined_df = pd.concat(all_meta)
 
         val_df = read_file_to_df(self._val_file_name, FileTypes.Auto, df_type="pandas")
-        results = compare_df.compare_df(val_df,
-                                        combined_df,
-                                        self._include_columns,
-                                        self._exclude_columns,
-                                        replace_idx=self._index_col,
-                                        abs_tol=self._abs_tol,
-                                        rel_tol=self._rel_tol)
+        self._results = compare_df.compare_df(val_df,
+                                              combined_df,
+                                              self._include_columns,
+                                              self._exclude_columns,
+                                              replace_idx=self._index_col,
+                                              abs_tol=self._abs_tol,
+                                              rel_tol=self._rel_tol)
 
-        with open(self._results_file_name, "w") as f:
-            json.dump(results, f, indent=2, sort_keys=True)
+        if (self._results_file_name is not None):
+            with open(self._results_file_name, "w") as f:
+                json.dump(self._results, f, indent=2, sort_keys=True)
 
     def _build_single(self, builder: mrc.Builder, input_stream: StreamPair) -> StreamPair:
 

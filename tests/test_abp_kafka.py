@@ -143,7 +143,7 @@ def test_abp_no_cpp(mock_triton_client,
 
     results = compare_df(val_df, output_df, exclude_columns=[r'^ID$', r'^_ts_'], rel_tol=0.05)
 
-    assert results['diff_rows'] == 0
+    assert results.diff_rows == 0
 
 
 @pytest.mark.kafka
@@ -208,4 +208,4 @@ def test_abp_cpp(config,
 
     results = compare_df(val_df, output_df, exclude_columns=[r'^ID$', r'^_ts_'], rel_tol=0.05)
 
-    assert results['diff_rows'] == 0
+    assert results.diff_rows == 0

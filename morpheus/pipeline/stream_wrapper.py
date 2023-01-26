@@ -378,6 +378,19 @@ class StreamWrapper(ABC, collections.abc.Hashable):
         pass
 
     def _post_build(self, builder: mrc.Builder, out_ports_pair: typing.List[StreamPair]) -> typing.List[StreamPair]:
+
+        # For each of the outputs, if there are multiple recievers, add a broadcast node
+        for idx, sender in enumerate(self.output_ports):
+
+            if (len(sender.output_recievers()) > 0):
+                node =  out_ports_pair[idx][0]
+
+                broadcast = mrc.core.node.Broadcast(builder, f"{self.name}[{idx}].broadcast")
+
+                builder.make_edge(node, broadcast)
+
+                out_ports_pair[idx] = (broadcast, out_ports_pair[idx][1])
+
         return out_ports_pair
 
     def start(self):

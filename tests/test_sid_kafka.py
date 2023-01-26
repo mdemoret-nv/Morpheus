@@ -141,7 +141,7 @@ def test_minibert_no_cpp(mock_triton_client,
 
     results = compare_df(val_df, output_df, exclude_columns=[r'^ID$', r'^_ts_'], rel_tol=0.05)
 
-    assert results['diff_rows'] == 1333
+    assert results.diff_rows == 1333
 
 
 @pytest.mark.kafka
@@ -210,4 +210,4 @@ def test_minibert_cpp(config,
 
     results = compare_df(val_df, output_df, exclude_columns=[r'^ID$', r'^_ts_'], rel_tol=0.05)
 
-    assert results['diff_rows'] == 1204
+    assert results.diff_rows == 1204

@@ -153,7 +153,7 @@ def test_dfp_roleg(mock_ae,
         rel_tol=0.15,
         show_report=True)
 
-    assert results['diff_rows'] == 0
+    assert results.diff_rows == 0
 
 
 @pytest.mark.kafka
@@ -255,4 +255,4 @@ def test_dfp_user123(mock_ae,
         rel_tol=0.1,
         show_report=True)
 
-    assert results['diff_rows'] == 0
+    assert results.diff_rows == 0
