@@ -393,12 +393,6 @@ class StreamWrapper(ABC, collections.abc.Hashable):
 
         return out_ports_pair
 
-    def start(self):
-
-        assert self.is_built, "Must build before starting!"
-
-        self._start()
-
     def _start(self):
         pass
 
@@ -409,6 +403,11 @@ class StreamWrapper(ABC, collections.abc.Hashable):
         pass
 
     async def join(self):
+        """
+        Awaitable method that stages can implement this to perform cleanup steps when pipeline is stopped.
+        Typically this is called after `stop` during a graceful shutdown, but may not be called if the pipeline is
+        terminated.
+        """
         pass
 
     def _create_ports(self, input_count: int, output_count: int):
