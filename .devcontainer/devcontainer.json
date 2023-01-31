@@ -50,7 +50,8 @@
 
     "mounts": [
         {"type":"bind", "source": "/var/run/docker.sock", "target": "/var/run/docker.sock"},
-        {"type":"bind", "source": "${localWorkspaceFolder}/.cache/conda", "target": "/home/${localEnv:USER}/.conda"}
+        {"type":"bind", "source": "${localWorkspaceFolder}/.cache/conda", "target": "/home/${localEnv:USER}/.conda"},
+        {"type":"bind", "source": "${localEnv:HOME}/.config/gh", "target": "/home/coder/.config/gh"},
     ],
 
     "features": {
@@ -63,6 +64,7 @@
             "installOhMyZsh": false,
         },
         "ghcr.io/devcontainers/features/docker-from-docker": {},
+        "ghcr.io/devcontainers/features/github-cli": {},
         "ghcr.io/devcontainers/features/dotnet:1": {},
         "./conda-default-env": {},
     },

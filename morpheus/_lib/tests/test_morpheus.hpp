@@ -1,5 +1,5 @@
 /**
- * SPDX-FileCopyrightText: Copyright (c) 2018-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,8 +29,9 @@
 namespace morpheus::test {
 
 /**
-* @brief Gets the `MORPHEUS_ROOT` env variable or throws a runtime_error.
-* @return std::filesystem::path
-*/
+ * @brief Gets the `MORPHEUS_ROOT` env variable or throws a runtime_error.
+ * @return std::filesystem::path
+ */
 std::filesystem::path get_morpheus_root();
-}
+
+}  // namespace morpheus::test

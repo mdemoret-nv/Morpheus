@@ -17,6 +17,12 @@
 # Some packages have annoying prompts. Disable them
 export DEBIAN_FRONTEND=noninteractive
 
+# Ensure our ~/.config directory has the correct permissions. If ~/.config did
+# not exist, and you mount ~/.config/gh from the host, then ~/.config will be
+# created with root permissions which can break things
+sudo mkdir -p ~/.config
+sudo chown ${USER}:${USER} ~/.config
+
 conda_env_find(){
     conda env list | grep "${@}" >/dev/null 2>/dev/null
 }

@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-FileCopyrightText: Copyright (c) 2021-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +21,7 @@ This example illustrates how to use Morpheus to automatically detect Sensitive I
 
 ## Background
 
-The goal of this example is to identify potentially sensitive information in network packet data as quickly as possible to limit exposure and take corrective action. Sensitive information is a broad term but can be generalized to any data that should be guarded from unautorized access. Credit card numbers, passwords, authorization keys, and emails are all examples of sensitive information.
+The goal of this example is to identify potentially sensitive information in network packet data as quickly as possible to limit exposure and take corrective action. Sensitive information is a broad term but can be generalized to any data that should be guarded from unauthorized access. Credit card numbers, passwords, authorization keys, and emails are all examples of sensitive information.
 
 In this example, we will be using Morpheus' provided NLP SI Detection model. This model is capable of detecting 10 different categories of sensitive information:
 
@@ -93,7 +93,7 @@ Once Triton has loaded the model, the following should be displayed:
 | sid-minibert-onnx | 1       | READY  |
 +-------------------+---------+--------+
 ```
-
+> **Note**: If this is not present in the output, check the Triton log for any error messages related to loading the model.
 
 ## Running the Pipeline
 
@@ -168,7 +168,7 @@ CPP Enabled: True
 ====Starting Pipeline====
 ====Pipeline Started====
 ====Building Pipeline====
-Added source: <from-file-0; FileSourceStage(filename=examples/data/pcap_dump.jsonlines, iterative=False, file_type=FileTypes.Auto, repeat=1, filter_null=True, cudf_kwargs=None)>
+Added source: <from-file-0; FileSourceStage(filename=examples/data/pcap_dump.jsonlines, iterative=False, file_type=FileTypes.Auto, repeat=1, filter_null=True)>
   └─> morpheus.MessageMeta
 Added stage: <deserialize-1; DeserializeStage()>
   └─ morpheus.MessageMeta -> morpheus.MultiMessage
@@ -203,7 +203,7 @@ The output file `detections.jsonlines` will contain the original PCAP messages w
 * secret_keys
 * user
 
-The value for these fields will either be a `1` indicating a decection and a `0` indicating no detection. An example row with a detection is:
+The value for these fields will either be a `1` indicating a detection and a `0` indicating no detection. An example row with a detection is:
 ```json
 {
   "timestamp": 1616381019580,

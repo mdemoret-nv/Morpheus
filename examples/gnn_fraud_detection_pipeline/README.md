@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: Copyright (c) 2021, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-FileCopyrightText: Copyright (c) 2021-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,13 +18,18 @@ limitations under the License.
 
 ## Requirements
 
-Prior to running the gnn fraud detection pipeline, additional requirements must be installed in to your Conda environment. A supplemental requirements file has been provided in this example directory.
+Prior to running the GNN fraud detection pipeline, additional requirements must be installed in to your Conda environment. A supplemental requirements file has been provided in this example directory.
 
 ```bash
 mamba env update -n ${CONDA_DEFAULT_ENV} -f examples/gnn_fraud_detection_pipeline/requirements.yml
 ```
 
 ## Running
+
+##### Setup Env Variable
+```bash
+export MORPHEUS_ROOT=$(pwd)
+```
 
 Use Morpheus to run the GNN fraud detection Pipeline with the transaction data. A pipeline has been configured in `run.py` with several command line options:
 
@@ -53,13 +58,13 @@ Options:
   --help                          Show this message and exit.
 ```
 
-To launch the configured Morpheus pipeline with the sample data that is provided at `<MORPHEUS_ROOT>/models/dataset`, run the following:
+To launch the configured Morpheus pipeline with the sample data that is provided at `$MORPHEUS_ROOT/models/dataset`, run the following:
 
 ```bash
 
 python run.py
 ====Building Pipeline====
-Added source: <from-file-0; FileSourceStage(filename=validation.csv, iterative=None, file_type=auto, repeat=1, filter_null=False, cudf_kwargs=None)>
+Added source: <from-file-0; FileSourceStage(filename=validation.csv, iterative=None, file_type=auto, repeat=1, filter_null=False)>
   └─> morpheus.MessageMeta
 Added stage: <deserialize-1; DeserializeStage()>
   └─ morpheus.MessageMeta -> morpheus.MultiMessage

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2021-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -41,7 +41,7 @@ from github_link import make_linkcode_resolve  # noqa
 # -- Project information -----------------------------------------------------
 
 project = 'morpheus'
-copyright = '2022, NVIDIA'
+copyright = '2023, NVIDIA'
 author = 'NVIDIA'
 
 # The version info for the project you're documenting, acts as replacement for

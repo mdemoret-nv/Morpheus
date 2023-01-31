@@ -1,4 +1,4 @@
-# Copyright (c) 2022, NVIDIA CORPORATION.
+# Copyright (c) 2022-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -84,9 +84,11 @@ class DFPSplitUsersStage(SinglePortStage):
 
             if (self._include_individual):
 
-                split_dataframes.update(
-                    {username: user_df
-                     for username, user_df in message.groupby("username", sort=False)})
+                split_dataframes.update({
+                    username: user_df
+                    for username,
+                    user_df in message.groupby(self._config.ae.userid_column_name, sort=False)
+                })
 
             output_messages: typing.List[DFPMessageMeta] = []
 

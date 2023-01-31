@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022, NVIDIA CORPORATION.
+# Copyright (c) 2021-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,4 +100,9 @@ class SourceStage(_pipeline.StreamWrapper):
         self._source_stream.start()
 
     async def join(self):
+        """
+        Awaitable method that stages can implement this to perform cleanup steps when pipeline is stopped.
+        Typically this is called after `stop` during a graceful shutdown, but may not be called if the pipeline is
+        terminated on its own.
+        """
         pass

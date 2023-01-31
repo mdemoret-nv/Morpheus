@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: Copyright (c) 2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-FileCopyrightText: Copyright (c) 2022-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,7 +16,6 @@ limitations under the License.
 -->
 
 # Examples
-* [Basic CLI Usage](./examples/basic_usage/README.md)
 * [Anomalous Behavior Profiling with Forest Inference Library (FIL) Example](./examples/abp_nvsmi_detection/README.md)
 * [ABP Detection Example Using Morpheus](./examples/abp_pcap_detection/README.md)
 * [GNN Fraud Detection Pipeline](./examples/gnn_fraud_detection_pipeline/README.md)

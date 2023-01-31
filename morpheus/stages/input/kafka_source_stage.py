@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022, NVIDIA CORPORATION.
+# Copyright (c) 2021-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -128,6 +128,9 @@ class KafkaSourceStage(SingleOutputSource):
         return True
 
     def stop(self):
+        """
+        Performs cleanup steps when pipeline is stopped.
+        """
 
         # Indicate we need to stop
         self._stop_requested = True

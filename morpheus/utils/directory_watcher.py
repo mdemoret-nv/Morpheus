@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022, NVIDIA CORPORATION.
+# Copyright (c) 2021-2023, NVIDIA CORPORATION.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -91,6 +91,9 @@ class DirectoryWatcher():
         self._watcher = None
 
     def build_node(self, name: str, builder: mrc.Builder):
+        """
+        Build and return the MRC source node
+        """
 
         # The first source just produces filenames
         return builder.make_source(name, self._generate_via_polling())

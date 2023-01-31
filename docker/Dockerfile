@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.3
 
-# SPDX-FileCopyrightText: Copyright (c) 2021-2022, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2021-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -29,7 +29,7 @@ FROM ${FROM_IMAGE}:${CUDA_VER}-devel-${LINUX_DISTRO}${LINUX_VER} AS base
 # Required arguments
 ARG IMAGE_TYPE=base
 ARG RAPIDS_CHANNEL=rapidsai-nightly
-ARG RAPIDS_VER=22.08
+ARG RAPIDS_VER=22.10
 ARG PYTHON_VER=3.8
 ARG CONDA_CHANNEL=rapidsai
 
