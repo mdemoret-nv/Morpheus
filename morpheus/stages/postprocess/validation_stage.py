@@ -77,7 +77,9 @@ class ValidationStage(MultiMessageStage):
     def __init__(
         self,
         c: Config,
-        val_file_name: str,
+        *,
+        val_file_name: str = None,
+        val_dataframe: pd.DataFrame = None,
         results_file_name: str = None,
         overwrite: bool = False,
         include: typing.List[str] = None,
