@@ -15,9 +15,15 @@
 
 FROM nvidia/cuda:11.5.1-devel-ubuntu20.04 AS base
 
-RUN apt-get update && \
+# Remove the docker-clean per: https://vsupalov.com/buildkit-cache-mount-dockerfile/
+RUN rm -f /etc/apt/apt.conf.d/docker-clean
+
+# Install with a cache
+RUN --mount=type=cache,target=/var/cache/apt \
+    apt-get update && \
     apt-get install --no-install-recommends --yes \
-        wget git-lfs gdb iputils-ping
+        wget git-lfs gdb iputils-ping && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV CONDA_DIR=/opt/conda
 

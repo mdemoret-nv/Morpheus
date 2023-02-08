@@ -39,7 +39,11 @@
     "containerEnv": {
         "HOST_MORPHEUS_ROOT": "${localWorkspaceFolder}",
         "MORPHEUS_ROOT": "${containerWorkspaceFolder}",
-        "PATH": "${containerEnv:PATH}:${containerWorkspaceFolder}/.devcontainer/bin"
+        // "PATH": "${containerEnv:PATH}:${containerWorkspaceFolder}/.devcontainer/bin"
+    },
+
+    "remoteEnv": {
+        "PATH": "${containerEnv:PATH}:${containerWorkspaceFolder}/.devcontainer/bin",
     },
 
     "postStartCommand": "${containerWorkspaceFolder}/.devcontainer/bin/setup-morpheus-env",

@@ -23,6 +23,7 @@ channels:
 dependencies:
     ####### Morpheus Dependencies (keep sorted!) #######
     - automake=1.16.5
+    - bash-completion
     - benchmark=1.6.1
     - boost-cpp=1.74
     - cachetools=5.0.0
