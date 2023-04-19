@@ -38,6 +38,7 @@ export SKIP_CLANG_TIDY=${SKIP_CLANG_TIDY:-""}
 export SKIP_IWYU=${SKIP_IWYU:-""}
 export SKIP_ISORT=${SKIP_ISORT:-""}
 export SKIP_YAPF=${SKIP_YAPF:-""}
+export SKIP_PYLINT=${SKIP_PYLINT:-""}
 
 # Set BUILD_DIR to use a different build folder
 export BUILD_DIR=${BUILD_DIR:-"${REPO_DIR}/build"}

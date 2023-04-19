@@ -29,6 +29,7 @@ LANG=C.UTF-8
 ISORT_RETVAL=0
 FLAKE_RETVAL=0
 YAPF_RETVAL=0
+PYLINT_RETVAL=0
 
 get_modified_files ${PYTHON_FILE_REGEX} MORPHEUS_MODIFIED_FILES
 
@@ -56,6 +57,12 @@ if [[ -n "${MORPHEUS_MODIFIED_FILES}" ]]; then
       # Run yapf. Will return 1 if there are any diffs
       YAPF_OUTPUT=`python3 -m yapf --style ${PY_CFG} ${YAPF_EXCLUDE_FLAGS} --diff ${MORPHEUS_MODIFIED_FILES[@]} 2>&1`
       YAPF_RETVAL=$?
+   fi
+
+   if [[ "${SKIP_PYLINT}" == "" ]]; then
+      # Run pylint
+      PYLINT_OUTPUT=`python3 -m pylint ${MORPHEUS_MODIFIED_FILES[@]} 2>&1`
+      PYLINT_RETVAL=$?
    fi
 
 else
@@ -101,7 +108,19 @@ else
   echo -e "\n\n>>>> PASSED: yapf style check\n\n"
 fi
 
-RETVALS=(${ISORT_RETVAL} ${FLAKE_RETVAL})
+if [[ "${SKIP_PYLINT}" != "" ]]; then
+   echo -e "\n\n>>>> SKIPPED: pylint check\n\n"
+elif [ "${PYLINT_RETVAL}" != "0" ]; then
+   echo -e "\n\n>>>> FAILED: pylint style check; begin output\n\n"
+   echo -e "${PYLINT_OUTPUT}"
+   echo -e "\n\n>>>> FAILED: pylint style check; end output\n\n" \
+           "To auto-fix many issues (not all) run:\n" \
+           "   ./ci/scripts/fix_all.sh\n\n"
+else
+  echo -e "\n\n>>>> PASSED: pylint style check\n\n"
+fi
+
+RETVALS=(${ISORT_RETVAL} ${FLAKE_RETVAL} ${YAPF_RETVAL} ${PYLINT_RETVAL})
 IFS=$'\n'
 RETVAL=`echo "${RETVALS[*]}" | sort -nr | head -n1`
 
