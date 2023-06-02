@@ -49,9 +49,11 @@
 #include <nlohmann/json.hpp>
 #include <pybind11/cast.h>
 #include <pybind11/functional.h>  // IWYU pragma: keep
+#include <pybind11/options.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 #include <pybind11/stl.h>  // IWYU pragma: keep
+#include <pymacro.h>
 #include <pymrc/node.hpp>  // IWYU pragma: keep
 #include <pymrc/port_builders.hpp>
 #include <pymrc/utils.hpp>  // for pymrc::import
@@ -64,6 +66,39 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
+// NOLINTBEGIN(readability-identifier-naming)
+namespace pybind11 {
+
+namespace detail {
+// NOLINTNEXTLINE(readability-identifier-naming)
+inline bool PyClassMethod_Check(PyObject* o)
+{
+    return o->ob_type == &PyClassMethod_Type;
+}
+}  // namespace detail
+
+class classmethod : public object
+{
+  public:
+    PYBIND11_OBJECT_CVT(classmethod, object, detail::PyClassMethod_Check, PyClassMethod_New)
+};
+
+template <typename FuncT, typename... ExtraT>
+void def_classmethod(pybind11::object& obj, const char* name_, FuncT&& f, const ExtraT&... extra)
+{
+    // Does not work, as-is
+    // cpp_function cf(
+    //     std::forward<FuncT>(f), name(name_), is_method(obj), sibling(getattr(obj, name_, none())), extra...);
+
+    cpp_function cf(std::forward<FuncT>(f), name(name_), scope(obj), sibling(getattr(obj, name_, none())), extra...);
+
+    auto cf_name                 = cf.name();
+    obj.attr(std::move(cf_name)) = classmethod(std::move(cf));
+}
+
+}  // namespace pybind11
+// NOLINTEND(readability-identifier-naming)
 
 namespace morpheus {
 
@@ -226,47 +261,160 @@ PYBIND11_MODULE(messages, _module)
         .def("__getitem__", &MutableTableCtxMgr::throw_usage_error)
         .def("__setattr__", &MutableTableCtxMgr::throw_usage_error)
         .def("__setitem__", &MutableTableCtxMgr::throw_usage_error);
+    {
+        py::options push_options;
 
-    py::class_<MessageMeta, std::shared_ptr<MessageMeta>>(_module, "MessageMeta")
-        .def(py::init<>(&MessageMetaInterfaceProxy::init_python), py::arg("df"))
-        .def_property_readonly("count", &MessageMetaInterfaceProxy::count)
-        .def_property_readonly("df", &MessageMetaInterfaceProxy::df_property, py::return_value_policy::move)
-        .def("copy_dataframe", &MessageMetaInterfaceProxy::get_data_frame, py::return_value_policy::move)
-        .def("mutable_dataframe", &MessageMetaInterfaceProxy::mutable_dataframe, py::return_value_policy::move)
-        .def("has_sliceable_index", &MessageMetaInterfaceProxy::has_sliceable_index)
-        .def("ensure_sliceable_index", &MessageMetaInterfaceProxy::ensure_sliceable_index)
-        .def_static("make_from_file", &MessageMetaInterfaceProxy::init_cpp);
+        push_options.disable_function_signatures();
+        push_options.enable_user_defined_docstrings();
 
-    py::class_<MultiMessage, std::shared_ptr<MultiMessage>>(_module, "MultiMessage")
-        .def(py::init<>(&MultiMessageInterfaceProxy::init),
-             py::kw_only(),
-             py::arg("meta"),
-             py::arg("mess_offset") = 0,
-             py::arg("mess_count")  = -1)
-        .def_property_readonly("meta", &MultiMessageInterfaceProxy::meta)
-        .def_property_readonly("mess_offset", &MultiMessageInterfaceProxy::mess_offset)
-        .def_property_readonly("mess_count", &MultiMessageInterfaceProxy::mess_count)
-        .def("get_meta",
-             static_cast<pybind11::object (*)(MultiMessage&)>(&MultiMessageInterfaceProxy::get_meta),
-             py::return_value_policy::move)
-        .def("get_meta",
-             static_cast<pybind11::object (*)(MultiMessage&, std::string)>(&MultiMessageInterfaceProxy::get_meta),
-             py::return_value_policy::move)
-        .def("get_meta",
-             static_cast<pybind11::object (*)(MultiMessage&, std::vector<std::string>)>(
-                 &MultiMessageInterfaceProxy::get_meta),
-             py::return_value_policy::move)
-        .def("get_meta",
-             static_cast<pybind11::object (*)(MultiMessage&, pybind11::none)>(&MultiMessageInterfaceProxy::get_meta),
-             py::return_value_policy::move)
-        .def("set_meta", &MultiMessageInterfaceProxy::set_meta, py::return_value_policy::move)
-        .def("get_slice", &MultiMessageInterfaceProxy::get_slice, py::return_value_policy::reference_internal)
-        .def("copy_ranges",
-             &MultiMessageInterfaceProxy::copy_ranges,
-             py::arg("ranges"),
-             py::arg("num_selected_rows") = py::none(),
-             py::return_value_policy::move)
-        .def("get_meta_list", &MultiMessageInterfaceProxy::get_meta_list, py::return_value_policy::move);
+        py::class_<MessageMeta, std::shared_ptr<MessageMeta>>(_module, "MessageMeta")
+            .def(py::init<>(&MessageMetaInterfaceProxy::init_python),
+                 py::arg("df"),
+                 "__init__(self, df: cudf.DataFrame)\n--\n\n")
+            .def_property_readonly("count", &MessageMetaInterfaceProxy::count)
+            .def_property_readonly("df", &MessageMetaInterfaceProxy::df_property, py::return_value_policy::move)
+            .def("copy_dataframe",
+                 &MessageMetaInterfaceProxy::get_data_frame,
+                 py::return_value_policy::move,
+                 "copy_dataframe($self, /)\n--\n\n")
+            .def("mutable_dataframe", &MessageMetaInterfaceProxy::mutable_dataframe, py::return_value_policy::move)
+            .def("has_sliceable_index",
+                 &MessageMetaInterfaceProxy::has_sliceable_index,
+                 "has_sliceable_index($self, /) -> bool\n--\n\n")
+            .def("ensure_sliceable_index", &MessageMetaInterfaceProxy::ensure_sliceable_index)
+            .def_static("make_from_file", &MessageMetaInterfaceProxy::init_cpp);
+    }
+
+    auto PyMultiMessage =
+        py::class_<MultiMessage, std::shared_ptr<MultiMessage>>(_module, "MultiMessage")
+            .def(py::init<>(&MultiMessageInterfaceProxy::init),
+                 py::kw_only(),
+                 py::arg("meta"),
+                 py::arg("mess_offset") = 0,
+                 py::arg("mess_count")  = -1)
+            .def_property_readonly("meta", &MultiMessageInterfaceProxy::meta)
+            .def_property_readonly("mess_offset", &MultiMessageInterfaceProxy::mess_offset)
+            .def_property_readonly("mess_count", &MultiMessageInterfaceProxy::mess_count)
+            .def("get_meta",
+                 static_cast<pybind11::object (*)(MultiMessage&)>(&MultiMessageInterfaceProxy::get_meta),
+                 py::return_value_policy::move)
+            .def("get_meta",
+                 static_cast<pybind11::object (*)(MultiMessage&, std::string)>(&MultiMessageInterfaceProxy::get_meta),
+                 py::return_value_policy::move)
+            .def("get_meta",
+                 static_cast<pybind11::object (*)(MultiMessage&, std::vector<std::string>)>(
+                     &MultiMessageInterfaceProxy::get_meta),
+                 py::return_value_policy::move)
+            .def(
+                "get_meta",
+                static_cast<pybind11::object (*)(MultiMessage&, pybind11::none)>(&MultiMessageInterfaceProxy::get_meta),
+                py::return_value_policy::move)
+            .def("set_meta", &MultiMessageInterfaceProxy::set_meta, py::return_value_policy::move)
+            .def("get_slice", &MultiMessageInterfaceProxy::get_slice, py::return_value_policy::reference_internal)
+            .def("copy_ranges",
+                 &MultiMessageInterfaceProxy::copy_ranges,
+                 py::arg("ranges"),
+                 py::arg("num_selected_rows") = py::none(),
+                 py::return_value_policy::move)
+            .def("get_meta_list", &MultiMessageInterfaceProxy::get_meta_list, py::return_value_policy::move)
+            .def_static("from_message_static",
+                        [](py::object cls, std::shared_ptr<MultiMessage> message, std::shared_ptr<MessageMeta> meta) {
+                            py::print("In static method");
+                        });
+    // .def_static("from_message",
+    //             [_module](pybind11::object message,
+    //                       pybind11::object meta,
+    //                       int mess_offset,
+    //                       int mess_count,
+    //                       const pybind11::kwargs& kwargs) {
+    //                 auto message_kwargs =
+    //                     MultiMessageInterfaceProxy::from_message_kwargs(message, meta, mess_offset, mess_count);
+
+    //                 kwargs.attr("update")(message_kwargs);
+
+    //                 return _module.attr("MultiMessage")(kwargs);
+    //             })
+    // .def_static("from_message",
+    //             [_module](pybind11::object message,
+    //                       pybind11::object meta,
+    //                       int mess_offset,
+    //                       int mess_count,
+    //                       pybind11::object memory,
+    //                       int offset,
+    //                       int count,
+    //                       const pybind11::kwargs& kwargs) {
+    //                 auto message_kwargs = MultiTensorMessageInterfaceProxy::from_message_kwargs(
+    //                     message, meta, mess_offset, mess_count);
+
+    //                 kwargs.attr("update")(message_kwargs);
+
+    //                 return _module.attr("MultiTensorMessage")(kwargs);
+    //             });
+
+    // PyMultiMessage.attr("from_message2") = make_classmethod(&test_class_method_fn);
+
+    pybind11::def_classmethod(
+        PyMultiMessage,
+        "from_message",
+        [](py::object cls,
+           std::shared_ptr<MultiMessage> message,
+           std::shared_ptr<MessageMeta> meta,
+           TensorIndex mess_offset,
+           TensorIndex mess_count,
+           py::kwargs kwargs) {
+            if (!message)
+            {
+                throw std::invalid_argument("Must define `message` when creating a MultiMessage with `from_message`");
+            }
+
+            if (mess_offset == -1)
+            {
+                if (meta)
+                {
+                    mess_offset = 0;
+                }
+                else
+                {
+                    mess_offset = message->mess_offset;
+                }
+            }
+
+            if (mess_count == -1)
+            {
+                if (meta)
+                {
+                    // Subtract offset here so we dont go over the end
+                    mess_count = meta->count() - mess_offset;
+                }
+                else
+                {
+                    mess_count = message->mess_count;
+                }
+            }
+
+            // Do meta last
+            if (!meta)
+            {
+                meta = message->meta;
+            }
+
+            py::dict update_args;
+
+            update_args["meta"]        = meta;
+            update_args["mess_offset"] = mess_offset;
+            update_args["mess_count"]  = mess_count;
+
+            // Update the kwargs
+            kwargs.attr("update")(update_args);
+
+            return cls(**kwargs);
+        },
+        py::arg("cls"),
+        py::kw_only(),
+        py::arg("message"),
+        py::arg("meta")        = std::shared_ptr<MessageMeta>(),
+        py::arg("mess_offset") = -1,
+        py::arg("mess_count")  = -1);
 
     py::class_<MultiTensorMessage, MultiMessage, std::shared_ptr<MultiTensorMessage>>(_module, "MultiTensorMessage")
         .def(py::init<>(&MultiTensorMessageInterfaceProxy::init),

@@ -478,45 +478,49 @@ def test_get_slice_derived(filter_probs_df: cudf.DataFrame):
                   memory=ResponseMemoryProbs(count=20, probs=multi_tensor_message_tensors["probs"]))
 
 
-def test_from_message(filter_probs_df: cudf.DataFrame):
+def test_from_message(use_cpp, filter_probs_df: cudf.DataFrame):
+
+    from morpheus._lib.messages import MultiMessage as MultiMessageCpp
+
+    MessageClass = MultiMessageCpp if use_cpp else MultiMessage
 
     meta = MessageMeta(filter_probs_df)
 
-    multi = MultiMessage(meta=meta, mess_offset=3, mess_count=10)
+    multi = MessageClass(meta=meta, mess_offset=3, mess_count=10)
 
     # Once for the base multi-message class
-    multi2 = MultiMessage.from_message(multi)
+    multi2 = MessageClass.from_message(multi)
     assert multi2.meta is multi.meta
     assert multi2.mess_offset == multi.mess_offset
     assert multi2.mess_count == multi.mess_count
 
-    multi2 = MultiMessage.from_message(multi, mess_offset=5)
+    multi2 = MessageClass.from_message(multi, mess_offset=5)
     assert multi2.meta is multi.meta
     assert multi2.mess_offset == 5
     assert multi2.mess_count == multi.mess_count
 
-    multi2 = MultiMessage.from_message(multi, mess_count=7)
+    multi2 = MessageClass.from_message(multi, mess_count=7)
     assert multi2.meta is multi.meta
     assert multi2.mess_offset == multi.mess_offset
     assert multi2.mess_count == 7
 
-    multi2 = MultiMessage.from_message(multi, mess_offset=6, mess_count=9)
+    multi2 = MessageClass.from_message(multi, mess_offset=6, mess_count=9)
     assert multi2.meta is multi.meta
     assert multi2.mess_offset == 6
     assert multi2.mess_count == 9
 
     meta2 = MessageMeta(filter_probs_df[7:14])
-    multi2 = MultiMessage.from_message(multi, meta=meta2)
+    multi2 = MessageClass.from_message(multi, meta=meta2)
     assert multi2.meta is meta2
     assert multi2.mess_offset == 0
     assert multi2.mess_count == meta2.count
 
-    multi2 = MultiMessage.from_message(multi, meta=meta2, mess_offset=4)
+    multi2 = MessageClass.from_message(multi, meta=meta2, mess_offset=4)
     assert multi2.meta is meta2
     assert multi2.mess_offset == 4
     assert multi2.mess_count == meta2.count - 4
 
-    multi2 = MultiMessage.from_message(multi, meta=meta2, mess_count=4)
+    multi2 = MessageClass.from_message(multi, meta=meta2, mess_count=4)
     assert multi2.meta is meta2
     assert multi2.mess_offset == 0
     assert multi2.mess_count == 4
@@ -782,3 +786,25 @@ def test_tensor_slicing(use_cpp: bool, dataset: DatasetManager):
     assert double_slice.count == single_slice.count
     assert cp.all(double_slice.get_tensor("probs") == single_slice.get_tensor("probs"))
     dataset.assert_df_equal(double_slice.get_meta(), single_slice.get_meta())
+
+
+def test_cpp_from_message(filter_probs_df):
+
+    from morpheus._lib.messages import MessageMeta as MessageMetaCpp
+    from morpheus._lib.messages import MultiMessage as MultiMessageCpp
+    from morpheus._lib.messages import MultiTensorMessage as MultiTensorMessageCpp
+
+    memory = TensorMemory(count=20)
+    test = MultiMessageCpp(meta=MessageMetaCpp(filter_probs_df))
+
+    import inspect
+
+    inspect.signature(MessageMetaCpp.copy_dataframe)
+
+    test_compare = MultiMessageCpp.from_message(test)
+
+    test_compare2 = MultiMessageCpp.from_message(test, mess_offset=2)
+
+    test3 = MultiTensorMessageCpp.from_message(test, memory=memory, offset=-1, count=-1)
+
+    print("done")
