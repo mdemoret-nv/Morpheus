@@ -151,6 +151,11 @@ class ColumnInfo:
         # The type is already converted. This is maintained for backwards compatibility.
         return self.dtype
 
+    def get_input_column_types(self) -> dict[str, str]:
+        """Return a dictionary of input column names and types needed for processing. This is used for schema
+        validation and should be overridden by subclasses."""
+        return {self.name: self.dtype}
+
     def _process_column(self, df: pd.DataFrame) -> pd.Series:
         """
         Performs the processing of the ColumnInfo. Most subclasses should override this method.
@@ -225,6 +230,11 @@ class RenameColumn(ColumnInfo):
     """
     input_name: str
 
+    def get_input_column_types(self) -> dict[str, str]:
+        """Return a dictionary of input column names and types needed for processing. This is used for schema
+        validation and should be overridden by subclasses."""
+        return {self.input_name: self.dtype}
+
     def _process_column(self, df: pd.DataFrame) -> pd.Series:
         """
         Rename the column and return it as a Series.
@@ -296,6 +306,11 @@ class BoolColumn(RenameColumn):
         if (false_values is not None):
             self.value_map.update({v: False for v in false_values})
 
+    def get_input_column_types(self) -> dict[str, str]:
+        """Return a dictionary of input column names and types needed for processing. This is used for schema
+        validation and should be overridden by subclasses."""
+        return {self.name: ColumnInfo.convert_pandas_dtype(str)}
+
     def _process_column(self, df: pd.DataFrame) -> pd.Series:
         """
         Apply the mapping and return the result as a boolean Series.
@@ -326,6 +341,13 @@ class DateTimeColumn(RenameColumn):
         Convert the values in the column to datetime and return the result as a Series.
 
     """
+
+    def get_input_column_types(self) -> dict[str, str]:
+        """
+        Return a dictionary of input column names and types needed for processing. This is used for schema
+        validation and should be overridden by subclasses.
+        """
+        return {self.input_name: ColumnInfo.convert_pandas_dtype(str)}
 
     def _process_column(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -403,6 +425,11 @@ class StringCatColumn(ColumnInfo):
     input_columns: typing.List[str]
     sep: str
 
+    def get_input_column_types(self) -> dict[str, str]:
+        """Return a dictionary of input column names and types needed for processing. This is used for schema
+        validation and should be overridden by subclasses."""
+        return {key: ColumnInfo.convert_pandas_dtype(str) for key in self.input_columns}
+
     def _process_column(self, df: pd.DataFrame) -> pd.Series:
         """
         Concatenate the values from the input columns and return the result as a Series.
@@ -445,6 +472,13 @@ class IncrementColumn(DateTimeColumn):
 
     groupby_column: str
     period: str = "D"
+
+    def get_input_column_types(self) -> dict[str, str]:
+        """
+        Return a dictionary of input column names and types needed for processing. This is used for schema
+        validation and should be overridden by subclasses.
+        """
+        return {self.groupby_column: ColumnInfo.convert_pandas_dtype(datetime)}
 
     def _process_column(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -495,6 +529,9 @@ class DataFrameInputSchema:
     preserve_columns: typing.List[str] = dataclasses.field(default_factory=list)
     row_filter: typing.Callable[[pd.DataFrame], pd.DataFrame] = None
 
+    input_columns: typing.List[tuple[str, str]] = dataclasses.field(init=False)
+    output_columns: typing.List[tuple[str, str]] = dataclasses.field(init=False)
+
     def __post_init__(self):
         """
         Compile the `preserve_columns` into a regular expression.
@@ -512,3 +549,70 @@ class DataFrameInputSchema:
             input_preserve_columns = None
 
         self.preserve_columns = input_preserve_columns
+
+        input_columns_dict = {}
+
+        self.output_columns = []
+
+        for col_info in self.column_info:
+            self.output_columns.append((col_info.name, col_info.dtype))
+
+            # Update the dictionary with the input columns
+            # TODO(MDD): Add validation that there are no duplicates
+            input_columns_dict.update(col_info.get_input_column_types())
+
+        self.input_columns = [(key, value) for key, value in input_columns_dict.items()]
+
+        self._nvt_workflow = None
+
+    def get_nvt_workflow(self):
+        if (self._nvt_workflow is None):
+            from morpheus.utils.nvt.schema_converters import dataframe_input_schema_to_nvt_workflow
+            self._nvt_workflow = dataframe_input_schema_to_nvt_workflow(self)
+
+        return self._nvt_workflow
+
+    def build_prepare_fn(self):
+        """
+        Build a function to prepare the input DataFrame for processing.
+
+        Returns
+        -------
+        Callable[[pandas.DataFrame], pandas.DataFrame]
+            A function to prepare the input DataFrame for processing.
+        """
+
+        from morpheus.utils.schema_transforms import _normalize_dataframe
+
+        # Build the list of columns to preserve
+        input_columns = {key: value for key, value in self.input_columns}
+        preserve_columns = self.preserve_columns
+
+        def prepare_fn(df: pd.DataFrame) -> pd.DataFrame:
+            """
+            Prepare the input DataFrame for processing.
+
+            Parameters
+            ----------
+            df : pandas.DataFrame
+                The DataFrame to prepare.
+
+            Returns
+            -------
+            pandas.DataFrame
+                The prepared DataFrame.
+            """
+
+            normalized_df = _normalize_dataframe(df, self)
+
+            # Reindex to ensure we have all missing columns
+            normalized_df = normalized_df.reindex(columns=input_columns.keys(), fill_value=None)
+
+            # # Trim the DataFrame to only the columns we need
+            # normalized_df = normalized_df[input_columns.keys()]
+
+            normalized_df = normalized_df.astype(input_columns)
+
+            return normalized_df
+
+        return prepare_fn

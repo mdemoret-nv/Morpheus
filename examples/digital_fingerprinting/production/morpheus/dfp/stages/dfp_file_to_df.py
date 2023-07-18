@@ -61,7 +61,11 @@ def _single_object_to_dataframe(file_object: fsspec.core.OpenFile,
                 logger.warning(f"Error fetching {file_object}: {e}\nRetrying...")
                 retries += 1
 
-    return s3_df
+    prepare_fn = schema.build_prepare_fn()
+
+    normalized_df = prepare_fn(s3_df)
+
+    return normalized_df
 
 
 class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
@@ -117,13 +121,13 @@ class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
 
     def accepted_types(self) -> typing.Tuple:
         """Accepted input types."""
-        return (typing.Any,)
+        return (typing.Any, )
 
     def _get_or_create_dataframe_from_s3_batch(
             self, file_object_batch: typing.Tuple[fsspec.core.OpenFiles, int]) -> typing.Tuple[pd.DataFrame, bool]:
 
         if (not file_object_batch):
-            return None, False
+            raise RuntimeError("No file objects to process")
 
         file_list = file_object_batch[0]
         batch_count = file_object_batch[1]
@@ -161,11 +165,10 @@ class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
             dfs = self._downloader.download(download_buckets, download_method)
         except Exception:
             logger.exception("Failed to download logs. Error: ", exc_info=True)
-            return None, False
+            raise
 
         if (not dfs):
-            logger.error("No logs were downloaded")
-            return None, False
+            raise ValueError("No logs were downloaded")
 
         output_df: pd.DataFrame = pd.concat(dfs)
         output_df = process_dataframe(df_in=output_df, input_schema=self._schema)
@@ -201,10 +204,11 @@ class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
 
             duration = (time.time() - start_time) * 1000.0
 
-            logger.debug("S3 objects to DF complete. Rows: %s, Cache: %s, Duration: %s ms",
+            logger.debug("S3 objects to DF complete. Rows: %s, Cache: %s, Duration: %s ms, Rate: %s rows/s",
                          len(output_df),
                          "hit" if cache_hit else "miss",
-                         duration)
+                         duration,
+                         len(output_df) / (duration / 1000.0))
 
             return output_df
         except Exception:

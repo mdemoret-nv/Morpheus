@@ -599,17 +599,17 @@ def dataframe_input_schema_to_nvt_workflow(input_schema: DataFrameInputSchema,
     if (input_schema is None or len(input_schema.column_info) == 0):
         raise ValueError("Input schema is empty")
 
-    # Try to guess which output columns we'll produce
-    json_output_cols = _resolve_json_output_columns(input_schema)
+    # # Try to guess which output columns we'll produce
+    # json_output_cols = _resolve_json_output_columns(input_schema)
 
-    json_cols = input_schema.json_columns
+    # json_cols = input_schema.json_columns
     column_info_objects = list(input_schema.column_info)
-    if (json_cols is not None and len(json_cols) > 0):
-        column_info_objects.append(
-            JSONFlattenInfo(input_col_names=list(json_cols),
-                            output_col_names=json_output_cols,
-                            dtype="str",
-                            name="json_info"))
+    # if (json_cols is not None and len(json_cols) > 0):
+    #     column_info_objects.append(
+    #         JSONFlattenInfo(input_col_names=list(json_cols),
+    #                         output_col_names=json_output_cols,
+    #                         dtype="str",
+    #                         name="json_info"))
 
     column_info_map = {ci.name: ci for ci in column_info_objects}
 

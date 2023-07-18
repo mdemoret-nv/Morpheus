@@ -126,23 +126,23 @@ def _filter_rows(df_in: pd.DataFrame, input_schema: DataFrameInputSchema):
 
 @typing.overload
 def process_dataframe(
-        df_in: pd.DataFrame,
-        input_schema: typing.Union[nvt.Workflow, DataFrameInputSchema],
+    df_in: pd.DataFrame,
+    input_schema: typing.Union[nvt.Workflow, DataFrameInputSchema],
 ) -> pd.DataFrame:
     ...
 
 
 @typing.overload
 def process_dataframe(
-        df_in: cudf.DataFrame,
-        input_schema: typing.Union[nvt.Workflow, DataFrameInputSchema],
+    df_in: cudf.DataFrame,
+    input_schema: typing.Union[nvt.Workflow, DataFrameInputSchema],
 ) -> cudf.DataFrame:
     ...
 
 
 def process_dataframe(
-        df_in: typing.Union[pd.DataFrame, cudf.DataFrame],
-        input_schema: typing.Union[nvt.Workflow, DataFrameInputSchema],
+    df_in: typing.Union[pd.DataFrame, cudf.DataFrame],
+    input_schema: typing.Union[nvt.Workflow, DataFrameInputSchema],
 ) -> typing.Union[pd.DataFrame, cudf.DataFrame]:
     """
     Applies column transformations to the input dataframe as defined by the `input_schema`.
@@ -162,16 +162,14 @@ def process_dataframe(
         Otherwise, it is cudf.DataFrame.
     """
 
-    work_algorithm = {
-        "data_frame_input_schema": None,
-        "nvt_workflow": None
-    }
-    workflow = input_schema
-    if (isinstance(input_schema, DataFrameInputSchema)):
-        work_algorithm["data_frame_input_schema"] = workflow
-        workflow = dataframe_input_schema_to_nvt_workflow(input_schema)
+    # work_algorithm = {"data_frame_input_schema": None, "nvt_workflow": None}
+    # workflow = input_schema
+    # if (isinstance(input_schema, DataFrameInputSchema)):
+    #     work_algorithm["data_frame_input_schema"] = workflow
+    #     workflow = dataframe_input_schema_to_nvt_workflow(input_schema)
 
-    work_algorithm["nvt_workflow"] = workflow
+    # work_algorithm["nvt_workflow"] = workflow
+
 
     convert_to_pd = False
     if (isinstance(df_in, pd.DataFrame)):
@@ -179,13 +177,12 @@ def process_dataframe(
 
         df_in = cudf.DataFrame(df_in)
 
-    if (df_in.shape[0] < 500 and work_algorithm["data_frame_input_schema"] is not None):
-        input_schema = work_algorithm["data_frame_input_schema"]
-        df_result = _normalize_dataframe(df_in, input_schema)
+    if (df_in.shape[0] < 10):
+        # df_result = _normalize_dataframe(df_in, input_schema)
         df_result = _process_columns(df_result, input_schema)
         df_result = _filter_rows(df_result, input_schema)
     else:
-        nvt_workflow = work_algorithm["nvt_workflow"]
+        nvt_workflow = input_schema.get_nvt_workflow()
         dataset = nvt.Dataset(df_in)
 
         df_result = nvt_workflow.fit_transform(dataset).to_ddf().compute()
