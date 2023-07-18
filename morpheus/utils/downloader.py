@@ -105,7 +105,6 @@ class Downloader:
 
             # Up the heartbeat interval which can get violated with long download times
             dask.config.set({"distributed.client.heartbeat": self._dask_heartbeat_interval})
-
             n_workers = dask_cuda.utils.get_n_gpus()
             threads_per_worker = mp.cpu_count() // n_workers
 
@@ -131,15 +130,8 @@ class Downloader:
         return self._merlin_distributed
 
     def close(self):
-        """Close the dask cluster if it exists."""
-        if (self._dask_cluster is not None):
-            logger.debug("Stopping dask cluster...")
-
-            self._dask_cluster.close()
-
-            self._dask_cluster = None
-
-            logger.debug("Stopping dask cluster... Done.")
+        """Cluster management is handled by Merlin.Distributed"""
+        pass
 
     def download(self,
                  download_buckets: fsspec.core.OpenFiles,

@@ -170,22 +170,35 @@ def process_dataframe(
 
     # work_algorithm["nvt_workflow"] = workflow
 
-
     convert_to_pd = False
     if (isinstance(df_in, pd.DataFrame)):
         convert_to_pd = True
 
+    # If we're given an nvt_schema, we just use it.
+    nvt_workflow = input_schema
+    if (isinstance(input_schema, DataFrameInputSchema)):
+        # if (input_schema.nvt_workflow is None):
+        #     input_schema = create_and_attach_nvt_workflow(input_schema)
+
+        # prepare_fn = input_schema.build_prepare_fn()
+
+        # df_in2 = prepare_fn(df_in)
+
+        # Note(Devin): pre-flatten to avoid Dask hang when calling json_normalize within an NVT operator
+        prepare_fn = input_schema.get_json_preproc()
+
+        df_in = prepare_fn(df_in)
+
+        # input_schema.json_columns = None
+
+        nvt_workflow = input_schema.get_nvt_workflow()
+
+    if (convert_to_pd):
         df_in = cudf.DataFrame(df_in)
 
-    if (df_in.shape[0] < 10):
-        # df_result = _normalize_dataframe(df_in, input_schema)
-        df_result = _process_columns(df_result, input_schema)
-        df_result = _filter_rows(df_result, input_schema)
-    else:
-        nvt_workflow = input_schema.get_nvt_workflow()
-        dataset = nvt.Dataset(df_in)
+    dataset = nvt.Dataset(df_in)
 
-        df_result = nvt_workflow.fit_transform(dataset).to_ddf().compute()
+    df_result = nvt_workflow.fit_transform(dataset).to_ddf().compute()
 
     if (convert_to_pd):
         return df_result.to_pandas()

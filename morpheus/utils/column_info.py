@@ -17,7 +17,9 @@ import logging
 import re
 import typing
 from datetime import datetime
+from functools import partial
 
+import nvtabular as nvt
 import pandas as pd
 
 import cudf
@@ -528,6 +530,9 @@ class DataFrameInputSchema:
     column_info: typing.List[ColumnInfo] = dataclasses.field(default_factory=list)
     preserve_columns: typing.List[str] = dataclasses.field(default_factory=list)
     row_filter: typing.Callable[[pd.DataFrame], pd.DataFrame] = None
+    json_output_columns: typing.List[str] = None
+    _nvt_workflow: nvt.Workflow = None
+    _json_preproc: typing.Callable[[pd.DataFrame], typing.List[str]] = None
 
     input_columns: typing.List[tuple[str, str]] = dataclasses.field(init=False)
     output_columns: typing.List[tuple[str, str]] = dataclasses.field(init=False)
@@ -571,6 +576,19 @@ class DataFrameInputSchema:
             self._nvt_workflow = dataframe_input_schema_to_nvt_workflow(self)
 
         return self._nvt_workflow
+
+    def get_json_preproc(self):
+        if (self._json_preproc is None):
+            from morpheus.utils.nvt.schema_converters import _json_flatten
+
+            input_columns = {key: value for key, value in self.input_columns}
+
+            self._json_preproc = partial(_json_flatten,
+                                         input_columns=input_columns,
+                                         json_cols=self.json_columns,
+                                         preserve_re=self.preserve_columns)
+
+        return self._json_preproc
 
     def build_prepare_fn(self):
         """

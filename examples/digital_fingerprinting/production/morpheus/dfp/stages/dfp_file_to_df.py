@@ -61,11 +61,11 @@ def _single_object_to_dataframe(file_object: fsspec.core.OpenFile,
                 logger.warning(f"Error fetching {file_object}: {e}\nRetrying...")
                 retries += 1
 
-    prepare_fn = schema.build_prepare_fn()
+    prepare_fn = schema.get_json_preproc()
 
-    normalized_df = prepare_fn(s3_df)
+    s3_df = prepare_fn(s3_df)
 
-    return normalized_df
+    return s3_df
 
 
 class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
@@ -127,7 +127,7 @@ class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
             self, file_object_batch: typing.Tuple[fsspec.core.OpenFiles, int]) -> typing.Tuple[pd.DataFrame, bool]:
 
         if (not file_object_batch):
-            raise RuntimeError("No file objects to process")
+            return None, False
 
         file_list = file_object_batch[0]
         batch_count = file_object_batch[1]
@@ -135,7 +135,7 @@ class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
         fs: fsspec.AbstractFileSystem = file_list.fs
 
         # Create a list of dictionaries that only contains the information we are interested in hashing. `ukey` just
-        # hashes all of the output of `info()` which is perfect
+        # hashes all the output of `info()` which is perfect
         hash_data = [{"ukey": fs.ukey(file_object.path)} for file_object in file_list]
 
         # Convert to base 64 encoding to remove - values
@@ -165,10 +165,11 @@ class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
             dfs = self._downloader.download(download_buckets, download_method)
         except Exception:
             logger.exception("Failed to download logs. Error: ", exc_info=True)
-            raise
+            return None, False
 
         if (not dfs):
-            raise ValueError("No logs were downloaded")
+            logger.error("No logs were downloaded")
+            return None, False
 
         output_df: pd.DataFrame = pd.concat(dfs)
         output_df = process_dataframe(df_in=output_df, input_schema=self._schema)
@@ -209,7 +210,6 @@ class DFPFileToDataFrameStage(PreallocatorMixin, SinglePortStage):
                          "hit" if cache_hit else "miss",
                          duration,
                          len(output_df) / (duration / 1000.0))
-
             return output_df
         except Exception:
             logger.exception("Error while converting S3 buckets to DF.")

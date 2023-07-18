@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import dataclasses
+import json
 import os
 import re
 import typing
@@ -562,6 +563,47 @@ def _coalesce_ops(graph: nx.Graph,
     coalesced_workflow = _coalesce_leaf_nodes(node_op_map, graph, preserve_re=preserve_re)
 
     return coalesced_workflow
+
+
+def _json_flatten(df_input: typing.Union[pd.DataFrame, cudf.DataFrame], input_columns, json_cols, preserve_re=None):
+    if (json_cols is None or len(json_cols) == 0):
+        return df_input
+
+    if (not df_input.columns.intersection(json_cols).empty):
+        convert_to_cudf = False
+
+        if (isinstance(df_input, cudf.DataFrame)):
+            convert_to_cudf = True
+            df_input = df_input.to_pandas()
+
+        json_normalized = []
+        cols_to_keep = list(df_input.columns)
+        for col in json_cols:
+            if (col not in cols_to_keep):
+                continue
+
+            pd_series = df_input[col]
+            pd_series = pd_series.apply(lambda x: x if isinstance(x, dict) else json.loads(x))
+
+            pdf_norm = pd.json_normalize(pd_series)
+            pdf_norm.rename(columns=lambda x, col=col: col + "." + x, inplace=True)
+            pdf_norm.reset_index(drop=True, inplace=True)
+
+            json_normalized.append(pdf_norm)
+            if (preserve_re is None or not preserve_re.match(col)):
+                cols_to_keep.remove(col)
+
+        df_input.reset_index(drop=True, inplace=True)
+        df_input = pd.concat([df_input[cols_to_keep]] + json_normalized, axis=1)
+
+        if (convert_to_cudf):
+            df_input = cudf.from_pandas(df_input).reset_index(drop=True)
+
+    df_input = df_input.reindex(columns=input_columns.keys(), fill_value=None)
+
+    df_input = df_input.astype(input_columns)
+
+    return df_input
 
 
 def dataframe_input_schema_to_nvt_workflow(input_schema: DataFrameInputSchema,
