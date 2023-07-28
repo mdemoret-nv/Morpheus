@@ -15,50 +15,80 @@
 
 list(APPEND CMAKE_MESSAGE_CONTEXT "simple_cpp_stage")
 
-set(Python3_FIND_VIRTUALENV "FIRST")
-set(Python3_FIND_STRATEGY "LOCATION")
-find_package(Python3 REQUIRED COMPONENTS Development Interpreter NumPy)
+morpheus_utils_python_configure()
 
-pybind11_add_module(morpheus_example MODULE "${CMAKE_CURRENT_SOURCE_DIR}/_lib/pass_thru.cpp")
-
-add_library(${PROJECT_NAME}::morpheus_example ALIAS morpheus_example)
-
-target_link_libraries(morpheus_example
-    PUBLIC
-      morpheus
-      mrc::pymrc
+morpheus_utils_create_python_package(morpheus_ex3
+  PROJECT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  SOURCE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/morpheus_ex3"
 )
 
-target_include_directories(morpheus_example
-    PUBLIC
-      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-      $<BUILD_INTERFACE:${MORPHEUS_ROOT}/morpheus/_lib/include>
-)
+add_subdirectory(morpheus_ex/simple_cpp_stage)
 
-set_target_properties(morpheus_example PROPERTIES CXX_VISIBILITY_PRESET hidden)
+# morpheus_add_pybind11_module(pass_thru_cpp
+#   SOURCE_FILES
+#     "_lib/pass_thru.cpp"
+#   INCLUDE_DIRS
+#     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+#     $<BUILD_INTERFACE:${MORPHEUS_ROOT}/morpheus/_lib/include>
+#   LINK_TARGETS
+#     morpheus
+#     mrc::pymrc
+# )
 
+# add_library(${PROJECT_NAME}::pass_thru_cpp ALIAS pass_thru_cpp)
+
+# target_link_libraries(morpheus_example
+#   PUBLIC
+#     morpheus
+#     mrc::pymrc
+# )
+
+# target_include_directories(morpheus_example
+#     PUBLIC
+#       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+#       $<BUILD_INTERFACE:${MORPHEUS_ROOT}/morpheus/_lib/include>
+# )
+
+# set_target_properties(pass_thru_cpp PROPERTIES CXX_VISIBILITY_PRESET hidden)
+
+# if(MORPHEUS_PYTHON_INPLACE_BUILD)
+#   set_target_properties(morpheus_example
+#     PROPERTIES
+#       INSTALL_RPATH "${PROJECT_SOURCE_DIR}/morpheus/_lib"
+#   )
+# else()
+#   # TODO: https://github.com/nv-morpheus/Morpheus/issues/331
+#   set_target_properties(morpheus_example
+#     PROPERTIES
+#       INSTALL_RPATH "${Python3_SITELIB}/morpheus/_lib"
+#   )
+# endif()
+
+# morpheus_utils_inplace_build_copy(morpheus_example "${CMAKE_CURRENT_SOURCE_DIR}/_lib")
+
+# message(STATUS " Install dest: (morpheus_example) ${CMAKE_CURRENT_BINARY_DIR}/_lib")
+# install(
+#     TARGETS
+#     morpheus_example
+#     LIBRARY DESTINATION
+#       "${CMAKE_CURRENT_BINARY_DIR}/_lib"
+# )
+
+# Complete the python package
 if(MORPHEUS_PYTHON_INPLACE_BUILD)
-  set_target_properties(morpheus_example
-    PROPERTIES
-      INSTALL_RPATH "${PROJECT_SOURCE_DIR}/morpheus/_lib"
-  )
-else()
-  # TODO: https://github.com/nv-morpheus/Morpheus/issues/331
-  set_target_properties(morpheus_example
-    PROPERTIES
-      INSTALL_RPATH "${Python3_SITELIB}/morpheus/_lib"
-  )
+  list(APPEND extra_args "IS_INPLACE")
 endif()
 
-morpheus_utils_inplace_build_copy(morpheus_example "${CMAKE_CURRENT_SOURCE_DIR}/_lib")
+# if(MORPHEUS_PYTHON_BUILD_WHEEL)
+#   list(APPEND extra_args "BUILD_WHEEL")
+# endif()
 
-message(STATUS " Install dest: (morpheus_example) ${CMAKE_CURRENT_BINARY_DIR}/_lib")
-install(
-    TARGETS
-    morpheus_example
-    LIBRARY DESTINATION
-      "${CMAKE_CURRENT_BINARY_DIR}/_lib"
-)
+# if(MORPHEUS_PYTHON_PERFORM_INSTALL)
+#   list(APPEND extra_args "INSTALL_WHEEL")
+# endif()
+
+
+morpheus_utils_build_python_package(morpheus_ex3 ${extra_args})
 
 
 list(POP_BACK CMAKE_MESSAGE_CONTEXT)

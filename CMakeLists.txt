@@ -162,6 +162,9 @@ morpheus_utils_add_python_sources(${morpheus_data_files})
 
 morpheus_utils_build_python_package(morpheus ${extra_args})
 
+# The style checks require loading the morpheus libraries which need the compiled python modules
+add_dependencies(${PROJECT_NAME}_style_checks morpheus-package-outputs)
+
 if(MORPHEUS_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
