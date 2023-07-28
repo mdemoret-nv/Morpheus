@@ -59,7 +59,8 @@
 		"python.testing.unittestEnabled": false,
 		"python.testing.pytestEnabled": true,
 		"cmake.format.allowOptionalArgumentIndentation": true,
-		"docker.languageserver.formatter.ignoreMultilineInstructions": true
+		"docker.languageserver.formatter.ignoreMultilineInstructions": true,
+		"notebook.output.wordWrap": true
 	},
 	"launch": {
 		"configurations": [

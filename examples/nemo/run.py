@@ -12,11 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 import os
 
 import click
 from nemo_example.nemo_inference_stage import NeMoInferenceStage
+from nemo_example.nemo_inference_stage import NeMoPreprocessingStage
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import f1_score
+
+import cudf
 
 from morpheus.cli.commands import FILE_TYPE_NAMES
 from morpheus.cli.utils import str_to_file_type
@@ -25,11 +31,8 @@ from morpheus.config import CppConfig
 from morpheus.config import PipelineModes
 from morpheus.pipeline.linear_pipeline import LinearPipeline
 from morpheus.stages.general.monitor_stage import MonitorStage
-from morpheus.stages.inference.triton_inference_stage import TritonInferenceStage
 from morpheus.stages.input.file_source_stage import FileSourceStage
-from morpheus.stages.output.write_to_file_stage import WriteToFileStage
-from morpheus.stages.postprocess.add_classifications_stage import AddClassificationsStage
-from morpheus.stages.postprocess.serialize_stage import SerializeStage
+from morpheus.stages.output.in_memory_sink_stage import InMemorySinkStage
 from morpheus.stages.preprocess.deserialize_stage import DeserializeStage
 from morpheus.utils.logger import configure_logging
 
@@ -43,14 +46,14 @@ from morpheus.utils.logger import configure_logging
 )
 @click.option(
     "--pipeline_batch_size",
-    default=100000,
+    default=128,
     type=click.IntRange(min=1),
     help=("Internal batch size for the pipeline. Can be much larger than the model batch size. "
           "Also used for Kafka consumers."),
 )
 @click.option(
     "--model_max_batch_size",
-    default=100000,
+    default=32,
     type=click.IntRange(min=1),
     help="Max batch size to use for the model.",
 )
@@ -121,79 +124,60 @@ def run_pipeline(
     config.feature_length = model_fea_length
     config.class_labels = ["probs"]
 
-    kwargs = {}
-
     # Create a linear pipeline object.
     pipeline = LinearPipeline(config)
 
     # Set source stage.
     # In this stage, messages were loaded from a file.
     pipeline.set_source(
-        FileSourceStage(
-            config,
-            filename=input_file,
-            iterative=iterative,
-            file_type=str_to_file_type(file_type.lower()),
-            filter_null=False,
-        ))
+        FileSourceStage(config,
+                        filename=input_file,
+                        iterative=iterative,
+                        file_type=str_to_file_type(file_type.lower()),
+                        filter_null=False,
+                        parser_kwargs={
+                            "orient": "index",
+                            "lines": False,
+                        }))
 
     # Add a deserialize stage.
     # At this stage, messages were logically partitioned based on the 'pipeline_batch_size'.
     pipeline.add_stage(DeserializeStage(config))
 
-    pipeline.add_stage(NeMoInferenceStage(config, model_name="gpt530b"))
+    pipeline.add_stage(NeMoPreprocessingStage(config))
+
+    pipeline.add_stage(NeMoInferenceStage(config, model_name="gpt5b", customization_id=None))
 
     # Add a monitor stage.
     pipeline.add_stage(MonitorStage(config, description="Inference rate"))
 
-    # # Add the custom preprocessing stage.
-    # # This stage preprocess the rows in the Dataframe.
-    # pipeline.add_stage(AbpPcapPreprocessingStage(config))
-
-    # # Add a monitor stage.
-    # # This stage logs the metrics (msg/sec) from the above stage.
-    # pipeline.add_stage(MonitorStage(config, description="Preprocessing rate"))
-
-    # # Add a inference stage.
-    # # This stage sends inference requests to the Tritonserver and captures the response.
-    # pipeline.add_stage(
-    #     TritonInferenceStage(
-    #         config,
-    #         model_name=model_name,
-    #         server_url=server_url,
-    #         force_convert_inputs=True,
-    #     ))
-
-    # # Add a monitor stage.
-    # # This stage logs the metrics (inf/sec) from the above stage.
-    # pipeline.add_stage(MonitorStage(config, description="Inference rate", unit="inf"))
-
-    # # Add a add classification stage.
-    # # This stage adds detected classifications to each message.
-    # pipeline.add_stage(AddClassificationsStage(config, labels=["probs"]))
-
-    # # Add a monitor stage.
-    # # This stage logs the metrics (msg/sec) from the above stage.
-    # pipeline.add_stage(MonitorStage(config, description="Add classification rate", unit="add-class"))
-
-    # # Add a serialize stage.
-    # # This stage includes & excludes columns from messages.
-    # pipeline.add_stage(SerializeStage(config, **kwargs))
-
-    # # Add a monitor stage.
-    # # This stage logs the metrics (msg/sec) from the above stage.
-    # pipeline.add_stage(MonitorStage(config, description="Serialize rate", unit="ser"))
-
-    # # Add a write to file stage.
-    # # This stage writes all messages to a file.
-    # pipeline.add_stage(WriteToFileStage(config, filename=output_file, overwrite=True))
-
-    # # Add a monitor stage.
-    # # This stage logs the metrics (msg/sec) from the above stage.
-    # pipeline.add_stage(MonitorStage(config, description="Write to file rate", unit="to-file"))
+    output_stage = pipeline.add_stage(InMemorySinkStage(config))
 
     # Run the pipeline.
     pipeline.run()
+
+    # Convert the output to a dictionary.
+    output_df = cudf.concat([x.get_meta(["response", "_index_"]) for x in output_stage.get_messages()]).to_pandas()
+    output_df["_index_"] = output_df["_index_"].astype(str)
+    output_df = output_df.set_index("_index_")
+    output_dict = output_df["response"].to_dict()
+
+    # ====================== EVALUATION ======================
+    ground_truth = json.load(open('./pubmedqa/data/test_ground_truth.json'))
+
+    assert set(list(ground_truth)) == set(list(output_dict)), 'Please predict all and only the instances in the test set.'
+
+    # Load the truth and prediction into the right format
+    pmids = list(ground_truth)
+    truth = [ground_truth[pmid] for pmid in pmids]
+    preds = [output_dict[pmid] for pmid in pmids]
+
+    # Calc the score
+    acc = accuracy_score(truth, preds)
+    maf = f1_score(truth, preds, average='macro')
+
+    print('Accuracy %f' % acc)
+    print('Macro-F1 %f' % maf)
 
 
 if __name__ == "__main__":

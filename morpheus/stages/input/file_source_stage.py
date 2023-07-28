@@ -65,7 +65,8 @@ class FileSourceStage(PreallocatorMixin, SingleOutputSource):
                  iterative: bool = False,
                  file_type: FileTypes = FileTypes.Auto,
                  repeat: int = 1,
-                 filter_null: bool = True):
+                 filter_null: bool = True,
+                 parser_kwargs: dict = None):
 
         super().__init__(c)
 
@@ -82,6 +83,8 @@ class FileSourceStage(PreallocatorMixin, SingleOutputSource):
         # is good for interleaving source stages.
         self._iterative = iterative
         self._repeat_count = repeat
+
+        self._parser_kwargs = parser_kwargs
 
     @property
     def name(self) -> str:
@@ -116,6 +119,7 @@ class FileSourceStage(PreallocatorMixin, SingleOutputSource):
             self._file_type,
             filter_nulls=self._filter_null,
             df_type="cudf",
+            parser_kwargs=self._parser_kwargs,
         )
 
         for i in range(self._repeat_count):
