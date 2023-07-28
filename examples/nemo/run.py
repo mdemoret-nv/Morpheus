@@ -146,7 +146,8 @@ def run_pipeline(
 
     pipeline.add_stage(NeMoPreprocessingStage(config))
 
-    pipeline.add_stage(NeMoInferenceStage(config, model_name="gpt5b", customization_id=None))
+    pipeline.add_stage(
+        NeMoInferenceStage(config, model_name="gpt5b", customization_id="7436ca66-ec34-42f2-8261-83fe9155fb13"))
 
     # Add a monitor stage.
     pipeline.add_stage(MonitorStage(config, description="Inference rate"))
@@ -165,7 +166,7 @@ def run_pipeline(
     # ====================== EVALUATION ======================
     ground_truth = json.load(open('./pubmedqa/data/test_ground_truth.json'))
 
-    assert set(list(ground_truth)) == set(list(output_dict)), 'Please predict all and only the instances in the test set.'
+    assert set(list(ground_truth)) == set(list(output_dict)), 'IDs in the dataset must match the validation set.'
 
     # Load the truth and prediction into the right format
     pmids = list(ground_truth)

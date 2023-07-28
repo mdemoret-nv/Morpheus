@@ -89,9 +89,13 @@ class NeMoInferenceStage(SinglePortStage):
         return False
 
     def _process_message(self, message: MultiMessage):
+
+        prompts = message.get_meta("prompt").to_pandas().tolist()
+
+        # Call the NeMo API and generate responses for the current batch
         response = self._conn.generate_multiple(
             model=self._model_name,
-            prompts=message.get_meta("prompt").to_pandas().tolist(),
+            prompts=prompts,
             customization_id=self._customization_id,
             return_type="text",
             tokens_to_generate=5,
@@ -99,7 +103,7 @@ class NeMoInferenceStage(SinglePortStage):
             temperature=0.1,
         )
 
-        message.set_meta("response", [x.strip() for x in response])
+        message.set_meta("response", [x.lower().strip() for x in response])
 
         return message
 
