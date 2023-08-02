@@ -27,6 +27,8 @@ from morpheus.messages import MultiMessage
 from morpheus.pipeline.single_port_stage import SinglePortStage
 from morpheus.pipeline.stream_pair import StreamPair
 
+from .nemo_service import NeMoService
+
 
 @register_stage("inf-nemo-preproc", modes=[PipelineModes.OTHER])
 class NeMoPreprocessingStage(SinglePortStage):
@@ -78,6 +80,8 @@ class NeMoInferenceStage(SinglePortStage):
         self._model_name = model_name
         self._customization_id = customization_id
 
+        self._nemo_service: NeMoService = None
+
     @property
     def name(self) -> str:
         return "inf-nemo"
@@ -92,16 +96,26 @@ class NeMoInferenceStage(SinglePortStage):
 
         prompts = message.get_meta("prompt").to_pandas().tolist()
 
-        # Call the NeMo API and generate responses for the current batch
-        response = self._conn.generate_multiple(
-            model=self._model_name,
-            prompts=prompts,
-            customization_id=self._customization_id,
-            return_type="text",
-            tokens_to_generate=5,
-            stop=["yes", "no", "maybe"],
-            temperature=0.1,
-        )
+        client = self._nemo_service.get_client(model_name=self._model_name,
+                                               customization_id=self._customization_id,
+                                               infer_kwargs={
+                                                   "tokens_to_generate": 5,
+                                                   "stop": ["yes", "no", "maybe"],
+                                                   "temperature": 0.1,
+                                               })
+
+        response = client.generate(prompts)
+
+        # # Call the NeMo API and generate responses for the current batch
+        # response = self._conn.generate_multiple(
+        #     model=self._model_name,
+        #     prompts=prompts,
+        #     customization_id=self._customization_id,
+        #     return_type="text",
+        #     tokens_to_generate=5,
+        #     stop=["yes", "no", "maybe"],
+        #     temperature=0.1,
+        # )
 
         message.set_meta("response", [x.lower().strip() for x in response])
 
@@ -109,17 +123,21 @@ class NeMoInferenceStage(SinglePortStage):
 
     def _build_single(self, builder: mrc.Builder, input_stream: StreamPair) -> StreamPair:
 
-        self._conn = NemoLLM(
-            # The client must configure the authentication and authorization parameters
-            # in accordance with the API server security policy.
-            # Configure Bearer authorization
-            api_key=os.environ["NGC_API_KEY"],
+        self._nemo_service = NeMoService.instance(org_id="bwbg3fjn7she")
 
-            # If you are in more than one LLM-enabled organization, you must
-            # specify your org ID in the form of a header. This is optional
-            # if you are only in one LLM-enabled org.
-            org_id="bwbg3fjn7she",
-        )
+        self._nemo_service.start()
+
+        # self._conn = NemoLLM(
+        #     # The client must configure the authentication and authorization parameters
+        #     # in accordance with the API server security policy.
+        #     # Configure Bearer authorization
+        #     api_key=os.environ["NGC_API_KEY"],
+
+        #     # If you are in more than one LLM-enabled organization, you must
+        #     # specify your org ID in the form of a header. This is optional
+        #     # if you are only in one LLM-enabled org.
+        #     org_id="bwbg3fjn7she",
+        # )
 
         node = builder.make_node(self.unique_name, ops.map(self._process_message))
         builder.make_edge(input_stream[0], node)
