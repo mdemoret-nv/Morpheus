@@ -202,7 +202,6 @@ def run_pipeline(train_users,
 
     config.ae = ConfigAutoEncoder()
 
-    config.ae.feature_columns = load_labels_file(get_package_relative_file("data/columns_ae_azure.txt"))
     config.ae.userid_column_name = "username"
     config.ae.timestamp_column_name = "timestamp"
 
@@ -226,6 +225,9 @@ def run_pipeline(train_users,
                         ],
                         sep=", "),
         RenameColumn(name="statusfailureReason", dtype=str, input_name="properties.status.failureReason"),
+        ColumnInfo(name="callerIpAddress", dtype=str),
+        RenameColumn(name="geoLatitude", dtype=float, input_name="properties.location.geoCoordinates.latitude"),
+        RenameColumn(name="geoLongitude", dtype=float, input_name="properties.location.geoCoordinates.longitude"),
     ]
 
     source_schema = DataFrameInputSchema(json_columns=["properties"], column_info=source_column_info)
@@ -240,6 +242,8 @@ def run_pipeline(train_users,
         ColumnInfo(name="deviceDetaildisplayName", dtype=str),
         ColumnInfo(name="deviceDetailoperatingSystem", dtype=str),
         ColumnInfo(name="statusfailureReason", dtype=str),
+        ColumnInfo(name="geoLatitude", dtype=float),
+        ColumnInfo(name="geoLongitude", dtype=float),
 
         # Derived columns
         IncrementColumn(name="logcount",
@@ -255,10 +259,15 @@ def run_pipeline(train_users,
                                 dtype=int,
                                 input_name="appDisplayName",
                                 groupby_column=config.ae.userid_column_name,
-                                timestamp_column=config.ae.timestamp_column_name)
+                                timestamp_column=config.ae.timestamp_column_name),
     ]
 
     preprocess_schema = DataFrameInputSchema(column_info=preprocess_column_info, preserve_columns=["_batch_id"])
+
+    config.ae.feature_columns = [
+        name for (name, dtype) in preprocess_schema.output_columns
+        if name not in (config.ae.userid_column_name, config.ae.timestamp_column_name)
+    ]
 
     # Create a linear pipeline object
     pipeline = LinearPipeline(config)
@@ -284,7 +293,7 @@ def run_pipeline(train_users,
                                 schema=source_schema,
                                 file_type=FileTypes.JSON,
                                 parser_kwargs={
-                                    "lines": False, "orient": "records"
+                                    "lines": True, "orient": "records"
                                 },
                                 cache_dir=cache_dir))
 
