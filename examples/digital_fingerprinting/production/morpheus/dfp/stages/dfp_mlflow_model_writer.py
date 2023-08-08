@@ -22,6 +22,7 @@ import urllib.parse
 import mlflow
 import mrc
 import requests
+from mlflow.entities import Metric
 from mlflow.exceptions import MlflowException
 from mlflow.models.signature import ModelSignature
 from mlflow.protos.databricks_pb2 import RESOURCE_ALREADY_EXISTS
@@ -227,6 +228,15 @@ class DFPMLFlowModelWriterStage(SinglePortStage):
                 )
 
                 client = MlflowClient()
+
+                all_metrics = [[
+                    Metric(key=metric_name, value=value, timestamp=timestamp, step=step) for value,
+                    timestamp,
+                    step in metric_list
+                ] for metric_name,
+                               metric_list in model._metrics.items()]
+
+                client.log_batch(run_id=run.info.run_id, metrics=sum(all_metrics, []))
 
                 # First ensure a registered model has been created
                 try:

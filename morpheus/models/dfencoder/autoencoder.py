@@ -52,6 +52,7 @@ import gc
 import logging
 from collections import OrderedDict
 from collections import defaultdict
+import time
 
 import numpy as np
 import pandas as pd
@@ -70,7 +71,7 @@ from .scalers import ModifiedScaler
 from .scalers import NullScaler
 from .scalers import StandardScaler
 
-LOG = logging.getLogger('autoencoder')
+LOG = logging.getLogger(__name__)
 
 
 def _ohe(input_vector, dim, device="cpu"):
@@ -488,7 +489,16 @@ class AutoEncoder(torch.nn.Module):
 
         self._build_optimizer()
         if self.lr_decay is not None:
-            self.lr_decay = torch.optim.lr_scheduler.ExponentialLR(self.optim, self.lr_decay)
+            # self.lr_decay = torch.optim.lr_scheduler.ExponentialLR(self.optim, self.lr_decay)
+            min_lr = self.lr * 0.1**4
+
+            self.lr_decay = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optim,
+                                                                       "min",
+                                                                       patience=5,
+                                                                       verbose=self.verbose,
+                                                                       min_lr=min_lr,
+                                                                       factor=0.5,
+                                                                       threshold=1e-3)
 
         self._build_logger()
 
@@ -861,8 +871,17 @@ class AutoEncoder(torch.nn.Module):
         last_loss = 5000
 
         count_es = 0
+        self._metrics: dict[str, list[tuple[float, int, int]]] = {
+            "lr": [],
+            "loss_val_swapped": [],
+            "loss_baseline": [],
+            "loss_val_unaltered": [],
+        }
+
         for i in range(epochs):
             self.train()
+
+            current_timestamp = int(time.time() * 1000)
 
             LOG.debug(f'training epoch {i + 1}...')
             df = df.sample(frac=1.0)
@@ -872,9 +891,6 @@ class AutoEncoder(torch.nn.Module):
             else:
                 input_df = df.swap(likelihood=self.swap_p)
                 self.train_epoch(n_updates, input_df, df)
-
-            if self.lr_decay is not None:
-                self.lr_decay.step()
 
             if run_validation and val is not None:
                 self.eval()
@@ -901,6 +917,13 @@ class AutoEncoder(torch.nn.Module):
 
                     self.logger.end_epoch()
 
+                    if self.lr_decay is not None:
+                        self.lr_decay.step(mean_id_loss)
+
+                    self._metrics["loss_val_swapped"].append((mean_swapped_loss, current_timestamp, i))
+                    self._metrics["loss_baseline"].append((baseline, current_timestamp, i))
+                    self._metrics["loss_val_unaltered"].append((mean_id_loss, current_timestamp, i))
+
                     if self.verbose:
                         msg = '\n'
                         msg += 'net validation loss, swapped input: \n'
@@ -910,6 +933,11 @@ class AutoEncoder(torch.nn.Module):
                         msg += 'net validation loss, unaltered input: \n'
                         msg += f"{round(mean_id_loss, 4)} \n\n\n"
                         LOG.debug(msg)
+            else:
+                if self.lr_decay is not None:
+                    self.lr_decay.step()
+
+            self._metrics["lr"].append((self.optim.param_groups[0]["lr"], current_timestamp, i))
 
         #Getting training loss statistics
         # mse_loss, bce_loss, cce_loss, _ = self.get_anomaly_score(pdf) if pdf_val is None else self.get_anomaly_score(pd.concat([pdf, pdf_val]))

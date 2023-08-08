@@ -325,7 +325,7 @@ def run_pipeline(train_users,
 
     if (is_training):
         # Finally, perform training which will output a model
-        pipeline.add_stage(DFPTraining(config, validation_size=0.10))
+        pipeline.add_stage(DFPTraining(config, validation_size=0.10, epochs=100))
 
         pipeline.add_stage(MonitorStage(config, description="Training rate", smoothing=0.001))
 
@@ -340,16 +340,20 @@ def run_pipeline(train_users,
 
         pipeline.add_stage(MonitorStage(config, description="Inference rate", smoothing=0.001))
 
-        # Filter for only the anomalous logs
-        pipeline.add_stage(
-            FilterDetectionsStage(config,
-                                  threshold=filter_threshold,
-                                  filter_source=FilterSource.DATAFRAME,
-                                  field_name='mean_abs_z'))
+        # # Filter for only the anomalous logs
+        # pipeline.add_stage(
+        #     FilterDetectionsStage(config,
+        #                           threshold=filter_threshold,
+        #                           filter_source=FilterSource.DATAFRAME,
+        #                           field_name='mean_abs_z'))
         pipeline.add_stage(DFPPostprocessingStage(config))
 
         # Exclude the columns we don't want in our output
-        pipeline.add_stage(SerializeStage(config, exclude=['batch_count', 'origin_hash', '_row_hash', '_batch_id']))
+        pipeline.add_stage(
+            SerializeStage(config,
+                           exclude=['batch_count', 'origin_hash', '_row_hash', '_batch_id'] +
+                           [f"{x}_pred"
+                            for x in config.ae.feature_columns] + [f"{x}_loss" for x in config.ae.feature_columns]))
 
         # Write all anomalies to a CSV file
         pipeline.add_stage(WriteToFileStage(config, filename="dfp_detections_azure.csv", overwrite=True))
