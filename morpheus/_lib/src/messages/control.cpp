@@ -179,6 +179,12 @@ void ControlMessage::task_type(ControlMessageType type)
     m_cm_type = type;
 }
 
+nlohmann::json ControlMessage::get_tasks() const
+{
+    // Make a copy and return the tasks
+    return m_tasks;
+}
+
 /*** Proxy Implementations ***/
 
 std::shared_ptr<ControlMessage> ControlMessageProxy::create(py::dict& config)
@@ -239,4 +245,10 @@ void ControlMessageProxy::config(ControlMessage& self, py::dict& config)
     self.config(mrc::pymrc::cast_from_pyobject(config));
 }
 
+pybind11::dict ControlMessageProxy::get_tasks(ControlMessage& self)
+{
+    auto dict = mrc::pymrc::cast_from_json(self.get_tasks());
+
+    return dict;
+}
 }  // namespace morpheus

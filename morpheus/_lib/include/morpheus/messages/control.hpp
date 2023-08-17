@@ -135,6 +135,8 @@ class ControlMessage
      */
     void task_type(ControlMessageType task_type);
 
+    nlohmann::json get_tasks() const;
+
   private:
     static const std::string s_config_schema;                          // NOLINT
     static std::map<std::string, ControlMessageType> s_task_type_map;  // NOLINT
@@ -160,6 +162,8 @@ struct ControlMessageProxy
 
     static void add_task(ControlMessage& self, const std::string& type, pybind11::dict& task);
     static pybind11::dict remove_task(ControlMessage& self, const std::string& type);
+
+    static pybind11::dict get_tasks(ControlMessage& self);
 
     /**
      * @brief Set a metadata key-value pair -- value must be json serializable

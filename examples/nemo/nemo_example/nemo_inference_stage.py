@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
 import os
 import typing
 
@@ -19,15 +20,35 @@ import mrc
 import pandas as pd
 from mrc.core import operators as ops
 from nemollm.api import NemoLLM
+from pydantic import BaseModel
 
+import cudf
+
+from morpheus._lib.messages import MessageMeta
 from morpheus.cli.register_stage import register_stage
 from morpheus.config import Config
 from morpheus.config import PipelineModes
+from morpheus.messages import ControlMessage
 from morpheus.messages import MultiMessage
 from morpheus.pipeline.single_port_stage import SinglePortStage
 from morpheus.pipeline.stream_pair import StreamPair
 
+from .llm_engine import LlmEngine
 from .nemo_service import NeMoService
+
+subclass_registry = {}
+
+class LLMTask(BaseModel):
+    task_type: str
+
+    def __init_subclass__(cls, **kwargs: dict) -> None:
+        super().__init_subclass__(**kwargs)
+        subclass_registry[cls.__name__] = cls
+
+
+class SpearPhishingGenerateEmailTask(LLMTask):
+    task_type: typing.Literal["spear_phishing_generate_email"] = "spear_phishing_generate_email"
+    template: str = "This is my email template. I am asking you to do something for me. Please do it. {stuff}"
 
 
 @register_stage("inf-nemo-preproc", modes=[PipelineModes.OTHER])
@@ -82,6 +103,8 @@ class NeMoInferenceStage(SinglePortStage):
 
         self._nemo_service: NeMoService = None
 
+        self._llm_engine = LlmEngine()
+
     @property
     def name(self) -> str:
         return "inf-nemo"
@@ -93,6 +116,23 @@ class NeMoInferenceStage(SinglePortStage):
         return False
 
     def _process_message(self, message: MultiMessage):
+
+        # Create a temp ControlMessage with a prompt task
+        control_message = ControlMessage()
+
+        control_message.add_task(
+            "llm_query",
+            dataclasses.asdict(
+                LLMTask(template="Generate me an {adjective} email targeting {subject}", model_name=self._model_name)))
+
+        payload = cudf.DataFrame({
+            "adjective": ["marketing", "HR", "friendly"],
+            "subject": ["a bank", "a bank", "a bank"],
+        })
+
+        control_message.payload(MessageMeta(payload))
+
+        engine_response = self._llm_engine.run(control_message)
 
         prompts = message.get_meta("prompt").to_pandas().tolist()
 
@@ -123,7 +163,7 @@ class NeMoInferenceStage(SinglePortStage):
 
     def _build_single(self, builder: mrc.Builder, input_stream: StreamPair) -> StreamPair:
 
-        self._nemo_service = NeMoService.instance(org_id="bwbg3fjn7she")
+        self._nemo_service = NeMoService.instance(org_id=os.environ["NGC_ORG_ID"])
 
         self._nemo_service.start()
 
@@ -136,7 +176,6 @@ class NeMoInferenceStage(SinglePortStage):
         #     # If you are in more than one LLM-enabled organization, you must
         #     # specify your org ID in the form of a header. This is optional
         #     # if you are only in one LLM-enabled org.
-        #     org_id="bwbg3fjn7she",
         # )
 
         node = builder.make_node(self.unique_name, ops.map(self._process_message))
