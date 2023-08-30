@@ -127,7 +127,6 @@ class FileSourceStage(PreallocatorMixin, SingleOutputSource):
             filter_nulls=self._filter_null,
             parser_kwargs=self._parser_kwargs,
             df_type="cudf",
-            parser_kwargs=self._parser_kwargs,
         )
 
         for i in range(self._repeat_count):

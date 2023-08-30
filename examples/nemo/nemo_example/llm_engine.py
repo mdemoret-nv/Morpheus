@@ -1,18 +1,18 @@
+import dataclasses
 import logging
 import os
+import typing
 from abc import ABC
 from abc import abstractmethod
 
-import pandas as pd
-from langchain import LLMChain
+from langchain.agents import Agent
 from langchain.callbacks.manager import CallbackManagerForLLMRun
 from langchain.llms.base import LLM
-from pydantic import root_validator
+from pydantic import BaseModel
 
 import cudf
 
 from morpheus.messages import ControlMessage
-from morpheus.messages import MessageMeta
 
 from .nemo_service import NeMoService
 
@@ -26,6 +26,43 @@ def get_from_dict_or_env(values: dict, dict_key: str, env_key: str) -> str:
         return os.environ[env_key]
     else:
         raise ValueError(f"Could not find {dict_key} in values or {env_key} in os.environ")
+
+
+subclass_registry = {}
+
+
+class LLMTask(BaseModel):
+    task_type: str
+
+    model_name: str
+    model_kwargs: dict = {}
+
+    def __init_subclass__(cls, **kwargs: dict) -> None:
+        super().__init_subclass__(**kwargs)
+        subclass_registry[cls.__name__] = cls
+
+
+class LLMTemplateTask(LLMTask):
+    task_type: typing.Literal["template"] = "template"
+    template: str
+    input_keys: list[str]
+
+
+class SpearPhishingGenerateEmailTask(LLMTask):
+    task_type: typing.Literal["spear_phishing_generate_email"] = "spear_phishing_generate_email"
+    template: str = "This is my email template. I am asking you to do something for me. Please do it. {stuff}"
+
+
+@dataclasses.dataclass
+class LLMGeneratePrompt:
+    model_name: str
+    model_kwargs: dict
+    prompts: list[str]
+
+
+@dataclasses.dataclass
+class LLMGenerateResult(LLMGeneratePrompt):
+    responses: list[str]
 
 
 class NeMoLangChain(LLM):
@@ -89,42 +126,69 @@ class NeMoLangChain(LLM):
 class LlmPropmtGenerator(ABC):
 
     @abstractmethod
-    def can_handle(self, input_tasks: list[dict], responses: list[cudf.DataFrame]) -> bool:
-        pass
-
-    @abstractmethod
-    def try_handle(self, input_message: ControlMessage, input_tasks: list[dict]) -> list[ControlMessage] | None:
+    def try_handle(self, input_task: dict,
+                   input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult | None:
         pass
 
 
-class LangChainPromptGenerator(LlmPropmtGenerator):
+class TemplatePromptGenerator(LlmPropmtGenerator):
 
-    def can_handle(self, input_tasks: list[dict], responses: list[cudf.DataFrame]) -> bool:
-        return True
+    def __init__(self):
+        super().__init__()
 
-    def try_handle(self, input_message: ControlMessage, input_tasks: list[dict]) -> list[ControlMessage] | None:
+    def try_handle(self, input_task: dict,
+                   input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult | None:
+
+        if (input_task["task_type"] != "template"):
+            return None
+
+        input_keys = input_task["input_keys"]
+
+        with input_message.payload().mutable_dataframe() as df:
+            input_dict: list[dict] = df[input_keys].to_dict(orient="records")
+
+        template: str = input_task["template"]
+
+        prompts = [template.format(**x) for x in input_dict]
+
+        return LLMGeneratePrompt(model_name=input_task["model_name"],
+                                 model_kwargs=input_task["model_kwargs"],
+                                 prompts=prompts)
+
+
+class LangChainAgentPromptGenerator(LlmPropmtGenerator):
+
+    def __init__(self, agent: Agent):
+        self._agent = agent
+
+    def try_handle(self, input_task: dict,
+                   input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult | None:
         pass
 
 
 class LlmTaskHandler(ABC):
 
     @abstractmethod
-    def can_handle(self, input_tasks: list[dict], responses: list[cudf.DataFrame]) -> bool:
+    def try_handle(self, input_task: dict, input_message: ControlMessage,
+                   responses: LLMGenerateResult) -> list[ControlMessage] | None:
         pass
 
-    @abstractmethod
-    def try_handle(self, input_message: ControlMessage, input_tasks: list[dict],
-                   responses: list[cudf.DataFrame]) -> list[ControlMessage] | None:
-        pass
+
+class DefaultTaskHandler(LlmTaskHandler):
+
+    def try_handle(self, input_task: dict, input_message: ControlMessage,
+                   responses: LLMGenerateResult) -> list[ControlMessage] | None:
+
+        with input_message.payload().mutable_dataframe() as df:
+            df["response"] = responses.responses
+
+        return [input_message]
 
 
 class SpearPhishingTaskHandler(LlmTaskHandler):
 
-    def can_handle(self, input_tasks: list[dict], responses: list[cudf.DataFrame]) -> bool:
-        return True
-
-    def try_handle(self, input_message: ControlMessage, input_tasks: list[dict],
-                   responses: list[cudf.DataFrame]) -> list[ControlMessage] | None:
+    def try_handle(self, input_task: dict, input_message: ControlMessage,
+                   responses: LLMGenerateResult) -> list[ControlMessage] | None:
         pass
 
 
@@ -136,64 +200,67 @@ class LlmEngine:
 
         self._llm = NeMoLangChain(model_name="gpt5b")
 
-        self._prompt_generator: list[LlmTaskHandler] = self._prompt_generator
+        self._prompt_generators: list[LlmPropmtGenerator] = []
         self._task_handlers: list[LlmTaskHandler] = []
+
+    def add_prompt_generator(self, prompt_generator: LlmPropmtGenerator):
+        self._prompt_generators.append(prompt_generator)
+
+    def add_task_handler(self, task_handler: LlmTaskHandler):
+        self._task_handlers.append(task_handler)
 
     def run(self, message: ControlMessage):
         if (not message.has_task("llm_query")):
             raise RuntimeError("llm_query task not found on message")
 
-        input_tasks = []
+        output_tasks: list[ControlMessage] = []
 
         while (message.has_task("llm_query")):
-            input_tasks.append(message.remove_task("llm_query"))
+            current_task = message.remove_task("llm_query")
 
-        # Prompt generator to build the input queries into the model
-        prompts = self._prompt_generator(input_tasks, message.payload())
+            # Prompt generator to build the input queries into the model
+            prompts = self._generate_prompts(current_task, message)
 
-        # Execute the LLM model
-        # client = self._nemo_service.get_client(model_name="")
+            if (not isinstance(prompts, LLMGenerateResult)):
+                # Execute the LLM model
+                prompts = self._execute_model(prompts)
 
-        # responses = client.generate(prompts)
-
-        # Generate the output tasks
-        output_tasks = self._task_generator(input_tasks, prompts)
+            # Generate the output tasks
+            output_tasks.extend(self._handle_tasks(current_task, message, prompts))
 
         return output_tasks
 
-    def _prompt_generator(self, input_tasks: list[dict], input_payload: MessageMeta) -> list[cudf.DataFrame]:
+    def _generate_prompts(self, input_task: dict,
+                          input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult:
 
-        responses: list[cudf.DataFrame] = []
+        for generator in self._prompt_generators:
 
-        for task in input_tasks:
+            prompt_result = generator.try_handle(input_task, input_message)
 
-            llm_chain: LLMChain = LLMChain.from_string(llm=self._llm, template=task["template"])
+            if (prompt_result is not None):
+                return prompt_result
 
-            # Create the input dict from the payload
-            with input_payload.mutable_dataframe() as df:
-                input_dict = df[llm_chain.input_keys].to_dict(orient="records")
+        raise RuntimeError(f"No prompt generator found for task: {input_task}")
 
-            result = llm_chain.generate(input_dict)
+    def _execute_model(self, prompts: LLMGeneratePrompt) -> LLMGenerateResult:
+        # Execute the LLM model
+        client = self._nemo_service.get_client(model_name=prompts.model_name, infer_kwargs=prompts.model_kwargs)
 
-            # Convert it to a list of dicts
-            # Only support one output for now
-            result_dict = [x[0].dict() for x in result.generations]
+        responses = client.generate(prompts.prompts)
 
-            responses.append(cudf.DataFrame(data=result_dict))
+        return LLMGenerateResult(model_name=prompts.model_name,
+                                 model_kwargs=prompts.model_kwargs,
+                                 prompts=prompts.prompts,
+                                 responses=responses)
 
-        return responses
-
-    def _task_generator(self, input_message: ControlMessage, input_tasks: list[dict],
-                        responses: list[cudf.DataFrame]) -> list[ControlMessage]:
-
-        tasks: list[ControlMessage] = []
+    def _handle_tasks(self, input_task: dict, input_message: ControlMessage,
+                      response: LLMGenerateResult) -> list[ControlMessage]:
 
         for handler in self._task_handlers:
 
-            new_tasks = handler.try_handle(input_message=input_message, input_tasks=input_tasks, response=responses)
+            new_tasks = handler.try_handle(input_task=input_task, input_message=input_message, responses=response)
 
             if new_tasks is not None:
-                tasks.extend(new_tasks)
-                break
+                return new_tasks
 
-        return tasks
+        raise RuntimeError(f"No prompt generator found for task: {input_task}")
