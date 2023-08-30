@@ -57,6 +57,8 @@ class FileSourceStage(PreallocatorMixin, SingleOutputSource):
     filter_null : bool, default = True
         Whether or not to filter rows with null 'data' column. Null values in the 'data' column can cause issues down
         the line with processing. Setting this to True is recommended.
+    parser_kwargs : dict, default = {}
+        Extra options to pass to the file parser.
     """
 
     def __init__(self,
@@ -75,6 +77,7 @@ class FileSourceStage(PreallocatorMixin, SingleOutputSource):
         self._filename = filename
         self._file_type = file_type
         self._filter_null = filter_null
+        self._parser_kwargs = parser_kwargs or {}
 
         self._input_count = None
         self._max_concurrent = c.num_threads
@@ -104,7 +107,11 @@ class FileSourceStage(PreallocatorMixin, SingleOutputSource):
 
         if self._build_cpp_node():
             import morpheus._lib.stages as _stages
-            out_stream = _stages.FileSourceStage(builder, self.unique_name, self._filename, self._repeat_count)
+            out_stream = _stages.FileSourceStage(builder,
+                                                 self.unique_name,
+                                                 self._filename,
+                                                 self._repeat_count,
+                                                 self._parser_kwargs)
         else:
             out_stream = builder.make_source(self.unique_name, self._generate_frames())
 
@@ -118,6 +125,7 @@ class FileSourceStage(PreallocatorMixin, SingleOutputSource):
             self._filename,
             self._file_type,
             filter_nulls=self._filter_null,
+            parser_kwargs=self._parser_kwargs,
             df_type="cudf",
             parser_kwargs=self._parser_kwargs,
         )
