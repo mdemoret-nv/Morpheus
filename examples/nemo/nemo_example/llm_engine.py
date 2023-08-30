@@ -1,3 +1,4 @@
+import logging
 import os
 from abc import ABC
 from abc import abstractmethod
@@ -14,6 +15,8 @@ from morpheus.messages import ControlMessage
 from morpheus.messages import MessageMeta
 
 from .nemo_service import NeMoService
+
+logger = logging.getLogger(f"morpheus.{__name__}")
 
 
 def get_from_dict_or_env(values: dict, dict_key: str, env_key: str) -> str:
@@ -64,9 +67,43 @@ class NeMoLangChain(LLM):
 
         client = self._nemo_service.get_client(model_name=self.model_name,
                                                customization_id=self.customization_id,
-                                               infer_kwargs={})
+                                               infer_kwargs={
+                                                   "tokens_to_generate": 100,
+                                                   "temperature": 0.0,
+                                                   "stop": stop,
+                                               })
 
-        return client.generate(prompt=prompt)
+        response: str = client.generate(prompt=prompt)
+
+        # If it ends with one of the stop words, remove it
+        for s in stop:
+            if (response.endswith(s)):
+                response = response.removesuffix(s)
+                break
+
+        logger.debug("Prompt: '%s', Response: '%s'", prompt, response)
+
+        return response
+
+
+class LlmPropmtGenerator(ABC):
+
+    @abstractmethod
+    def can_handle(self, input_tasks: list[dict], responses: list[cudf.DataFrame]) -> bool:
+        pass
+
+    @abstractmethod
+    def try_handle(self, input_message: ControlMessage, input_tasks: list[dict]) -> list[ControlMessage] | None:
+        pass
+
+
+class LangChainPromptGenerator(LlmPropmtGenerator):
+
+    def can_handle(self, input_tasks: list[dict], responses: list[cudf.DataFrame]) -> bool:
+        return True
+
+    def try_handle(self, input_message: ControlMessage, input_tasks: list[dict]) -> list[ControlMessage] | None:
+        pass
 
 
 class LlmTaskHandler(ABC):
@@ -99,6 +136,7 @@ class LlmEngine:
 
         self._llm = NeMoLangChain(model_name="gpt5b")
 
+        self._prompt_generator: list[LlmTaskHandler] = self._prompt_generator
         self._task_handlers: list[LlmTaskHandler] = []
 
     def run(self, message: ControlMessage):
