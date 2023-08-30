@@ -594,6 +594,7 @@
         "files.insertFinalNewline": true,
         "files.trimFinalNewlines": true,
         "files.trimTrailingWhitespace": true,
+        "notebook.output.wordWrap": true,
         "python.analysis.extraPaths": [
             "./examples/digital_fingerprinting/production/morpheus"
         ],
@@ -613,7 +614,6 @@
         ],
         "python.testing.pytestEnabled": true,
         "python.testing.unittestEnabled": false,
-        "rewrap.wrappingColumn": 120,
-	"notebook.output.wordWrap": true
+        "rewrap.wrappingColumn": 120
     }
 }
