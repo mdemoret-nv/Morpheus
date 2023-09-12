@@ -6,14 +6,18 @@ from abc import ABC
 from abc import abstractmethod
 
 from langchain.agents import Agent
+from langchain.agents import AgentExecutor
 from langchain.callbacks.manager import CallbackManagerForLLMRun
 from langchain.llms.base import LLM
+from langchain.schema import AgentAction
+from langchain.schema import AgentFinish
 from pydantic import BaseModel
 
 import cudf
 
 from morpheus.messages import ControlMessage
 
+from .nemo_service import LLMService
 from .nemo_service import NeMoService
 
 logger = logging.getLogger(f"morpheus.{__name__}")
@@ -40,6 +44,11 @@ class LLMTask(BaseModel):
     def __init_subclass__(cls, **kwargs: dict) -> None:
         super().__init_subclass__(**kwargs)
         subclass_registry[cls.__name__] = cls
+
+
+class LLMDictTask(LLMTask):
+    task_type: typing.Literal["dictionary"] = "dictionary"
+    input_keys: list[str]
 
 
 class LLMTemplateTask(LLMTask):
@@ -123,15 +132,15 @@ class NeMoLangChain(LLM):
         return response
 
 
-class LlmPropmtGenerator(ABC):
+class LLMPropmtGenerator(ABC):
 
     @abstractmethod
-    def try_handle(self, input_task: dict,
+    def try_handle(self, engine: "LLMEngine", input_task: dict,
                    input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult | None:
         pass
 
 
-class TemplatePromptGenerator(LlmPropmtGenerator):
+class TemplatePromptGenerator(LLMPropmtGenerator):
 
     def __init__(self):
         super().__init__()
@@ -156,25 +165,45 @@ class TemplatePromptGenerator(LlmPropmtGenerator):
                                  prompts=prompts)
 
 
-class LangChainAgentPromptGenerator(LlmPropmtGenerator):
+class LangChainAgentExectorPromptGenerator(LLMPropmtGenerator):
 
-    def __init__(self, agent: Agent):
-        self._agent = agent
+    def __init__(self, agent_executor: AgentExecutor):
+        self._agent_executor = agent_executor
 
     def try_handle(self, input_task: dict,
                    input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult | None:
-        pass
+
+        if (input_task["task_type"] != "dictionary"):
+            return None
+
+        input_keys = input_task["input_keys"]
+
+        with input_message.payload().mutable_dataframe() as df:
+            input_dict: list[dict] = df[input_keys].to_dict(orient="records")
+
+        results = []
+
+        for x in input_dict:
+            results.append(self._agent_executor.run(**x))
+
+        return LLMGenerateResult(model_name=input_task["model_name"],
+                                 model_kwargs=input_task["model_kwargs"],
+                                 prompts=[],
+                                 responses=results)
 
 
-class LlmTaskHandler(ABC):
+class LLMTaskHandler(ABC):
 
     @abstractmethod
-    def try_handle(self, input_task: dict, input_message: ControlMessage,
+    def try_handle(self,
+                   engine: "LLMEngine",
+                   input_task: dict,
+                   input_message: ControlMessage,
                    responses: LLMGenerateResult) -> list[ControlMessage] | None:
         pass
 
 
-class DefaultTaskHandler(LlmTaskHandler):
+class DefaultTaskHandler(LLMTaskHandler):
 
     def try_handle(self, input_task: dict, input_message: ControlMessage,
                    responses: LLMGenerateResult) -> list[ControlMessage] | None:
@@ -185,28 +214,74 @@ class DefaultTaskHandler(LlmTaskHandler):
         return [input_message]
 
 
-class SpearPhishingTaskHandler(LlmTaskHandler):
+class SpearPhishingTaskHandler(LLMTaskHandler):
 
     def try_handle(self, input_task: dict, input_message: ControlMessage,
                    responses: LLMGenerateResult) -> list[ControlMessage] | None:
         pass
 
 
+class LLMEngine:
+
+    def __init__(self, llm_service: LLMService):
+        ...
+
+    @property
+    def llm_service(self) -> LLMService:
+        ...
+
+    # Managing Prompt Generators
+    def add_prompt_generator(self, prompt_generator: LLMPropmtGenerator):
+        ...
+
+    def insert_prompt_generator(self, prompt_generator: LLMPropmtGenerator, index: int):
+        ...
+
+    def remove_prompt_generator(self, prompt_generator: LLMPropmtGenerator) -> bool:
+        ...
+
+    # Managing Task Handlers
+    def add_task_handler(self, task_handler: LLMTaskHandler):
+        ...
+
+    def insert_task_handler(self, task_handler: LLMTaskHandler, index: int):
+        ...
+
+    def remove_task_handler(self, task_handler: LLMTaskHandler) -> bool:
+        ...
+
+    # Executing a task with a given input message
+    def run(self, message: ControlMessage) -> list[ControlMessage]:
+        ...
+
+
 class LlmEngine:
 
-    def __init__(self):
+    def __init__(self, llm_service: LLMService):
 
-        self._nemo_service = NeMoService.instance()
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+
+        handle = loop.call_soon_threadsafe(self._init, llm_service)
+
+        asyncio.iscoroutine(handle)
+
+        self._llm_service = llm_service
 
         self._llm = NeMoLangChain(model_name="gpt5b")
 
-        self._prompt_generators: list[LlmPropmtGenerator] = []
-        self._task_handlers: list[LlmTaskHandler] = []
+        self._prompt_generators: list[LLMPropmtGenerator] = []
+        self._task_handlers: list[LLMTaskHandler] = []
 
-    def add_prompt_generator(self, prompt_generator: LlmPropmtGenerator):
+    @property
+    def llm_service(self):
+        return self._llm_service
+
+    def add_prompt_generator(self, prompt_generator: LLMPropmtGenerator):
         self._prompt_generators.append(prompt_generator)
 
-    def add_task_handler(self, task_handler: LlmTaskHandler):
+    def add_task_handler(self, task_handler: LLMTaskHandler):
         self._task_handlers.append(task_handler)
 
     def run(self, message: ControlMessage):
@@ -244,7 +319,7 @@ class LlmEngine:
 
     def _execute_model(self, prompts: LLMGeneratePrompt) -> LLMGenerateResult:
         # Execute the LLM model
-        client = self._nemo_service.get_client(model_name=prompts.model_name, infer_kwargs=prompts.model_kwargs)
+        client = self._llm_service.get_client(model_name=prompts.model_name, infer_kwargs=prompts.model_kwargs)
 
         responses = client.generate(prompts.prompts)
 

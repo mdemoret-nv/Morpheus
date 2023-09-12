@@ -133,13 +133,11 @@ def run_pipeline(
     configure_logging(log_level=logging.DEBUG)
 
     # ============= Testing code =============
-    from nemo_example.llm_engine import LlmEngine
-    from nemo_example.llm_engine import NeMoLangChain
-
     # prompt_template = "What is a good name for a company that makes {product}?"
     # llm = NeMoLangChain(model_name="gpt5b")
     # llm_chain = LLMChain(llm=llm, prompt=PromptTemplate.from_template(prompt_template))
     # llm_chain("colorful socks")
+    # ====================================
     # llm = NeMoLangChain(model_name="gpt530b")
     # # llm = OpenAI(temperature=0)
     # llm_math_chain = LLMMathChain.from_llm(llm=llm, verbose=True)
@@ -183,24 +181,86 @@ def run_pipeline(
     # tools = load_tools(["serpapi", "llm-math"], llm=llm)
     # agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
     # agent.run("Who is Leo DiCaprio's girlfriend? What is her current age raised to the 0.43 power?")
+    # ====================================
+    # engine = LlmEngine()
+    # engine.add_prompt_generator(TemplatePromptGenerator())
+    # engine.add_task_handler(DefaultTaskHandler())
+    # control_message = ControlMessage()
+    # control_message.add_task(
+    #     "llm_query",
+    #     LLMTemplateTask(template="Generate me an {adjective} email targeting {subject}",
+    #                     input_keys=["adjective", "subject"],
+    #                     model_name="gpt-43b-002").dict())
+    # payload = cudf.DataFrame({
+    #     "adjective": ["marketing", "HR", "friendly"],
+    #     "subject": ["a bank", "a bank", "a bank"],
+    # })
+    # control_message.payload(MessageMeta(payload))
+    # engine.run(control_message)
+    # ====================================
+    from nemo_example.llm_engine import LangChainAgentExectorPromptGenerator
+    from nemo_example.llm_engine import LLMDictTask
+    from nemo_example.llm_engine import LlmEngine
+    from nemo_example.llm_engine import NeMoLangChain
+
+    llm = NeMoLangChain(model_name="gpt-43b-002")
+    # llm = OpenAI(temperature=0)
+    llm_math_chain = LLMMathChain.from_llm(llm=llm, verbose=True)
+    primes = {998: 7901, 999: 7907, 1000: 7919}
+
+    class CalculatorInput(pydantic.BaseModel):
+        question: str = pydantic.Field()
+
+    class PrimeInput(pydantic.BaseModel):
+        n: int = pydantic.Field()
+
+    def is_prime(n: int) -> bool:
+        if n <= 1 or (n % 2 == 0 and n > 2):
+            return False
+        for i in range(3, int(n**0.5) + 1, 2):
+            if n % i == 0:
+                return False
+        return True
+
+    def get_prime(n: int, primes: dict = primes) -> str:
+        return str(primes.get(int(n)))
+
+    async def aget_prime(n: int, primes: dict = primes) -> str:
+        return str(primes.get(int(n)))
+
+    tools = [
+        Tool(
+            name="GetPrime",
+            func=get_prime,
+            description="A tool that returns the `n`th prime number",
+            args_schema=PrimeInput,
+            coroutine=aget_prime,
+        ),
+        Tool.from_function(
+            func=llm_math_chain.run,
+            name="Calculator",
+            description="Useful for when you need to compute mathematical expressions",
+            args_schema=CalculatorInput,
+            coroutine=llm_math_chain.arun,
+        ),
+    ]
+    agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
 
     engine = LlmEngine()
 
-    engine.add_prompt_generator(TemplatePromptGenerator())
+    engine.add_prompt_generator(LangChainAgentExectorPromptGenerator(agent))
 
     engine.add_task_handler(DefaultTaskHandler())
 
     control_message = ControlMessage()
 
-    control_message.add_task(
-        "llm_query",
-        LLMTemplateTask(template="Generate me an {adjective} email targeting {subject}",
-                        input_keys=["adjective", "subject"],
-                        model_name="gpt-43b-002").dict())
+    control_message.add_task("llm_query", LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict())
 
     payload = cudf.DataFrame({
-        "adjective": ["marketing", "HR", "friendly"],
-        "subject": ["a bank", "a bank", "a bank"],
+        "input": [
+            "What is the product of the 998th, 999th and 1000th prime numbers?",
+            "What is the product of the 998th and 1000th prime numbers?"
+        ],
     })
 
     control_message.payload(MessageMeta(payload))

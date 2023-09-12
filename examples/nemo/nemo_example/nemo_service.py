@@ -1,6 +1,8 @@
 import os
 import threading
 import typing
+from abc import ABC
+from abc import abstractmethod
 
 from mrc.core import operators as ops
 from nemollm.api import NemoLLM
@@ -45,6 +47,30 @@ class ThreadSafeSingleton(type):
                 if cls not in cls._instances:
                     cls._instances[cls] = super(ThreadSafeSingleton, cls).__call__(*args, **kwargs)
         return cls._instances[cls]
+
+
+class LLMClient(ABC):
+
+    @typing.overload
+    @abstractmethod
+    def generate(self, prompt: str) -> str:
+        ...
+
+    @typing.overload
+    @abstractmethod
+    def generate(self, prompt: list[str]) -> list[str]:
+        ...
+
+    @abstractmethod
+    def generate(self, prompt: str | list[str]) -> str | list[str]:
+        pass
+
+
+class LLMService(ABC):
+
+    @abstractmethod
+    def get_client(self, model_name: str, model_kwargs: dict | None = None) -> LLMClient:
+        pass
 
 
 class NeMoService(metaclass=ThreadSafeSingleton):

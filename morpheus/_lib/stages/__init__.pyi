@@ -10,6 +10,7 @@ import morpheus._lib.stages
 import typing
 from morpheus._lib.common import FilterSource
 import morpheus._lib.common
+import morpheus._lib.messages
 import mrc.core.segment
 
 __all__ = [
@@ -21,6 +22,11 @@ __all__ = [
     "FilterSource",
     "InferenceClientStage",
     "KafkaSourceStage",
+    "LLMEngine",
+    "LLMGeneratePrompt",
+    "LLMGenerateResult",
+    "LLMPromptGenerator",
+    "LLMTask",
     "PreallocateMessageMetaStage",
     "PreallocateMultiMessageStage",
     "PreprocessFILStage",
@@ -53,6 +59,24 @@ class KafkaSourceStage(mrc.core.segment.SegmentObject):
     def __init__(self, builder: mrc.core.segment.Builder, name: str, max_batch_size: int, topic: str, batch_timeout_ms: int, config: typing.Dict[str, str], disable_commits: bool = False, disable_pre_filtering: bool = False, stop_after: int = 0, async_commits: bool = True) -> None: ...
     @typing.overload
     def __init__(self, builder: mrc.core.segment.Builder, name: str, max_batch_size: int, topics: typing.List[str], batch_timeout_ms: int, config: typing.Dict[str, str], disable_commits: bool = False, disable_pre_filtering: bool = False, stop_after: int = 0, async_commits: bool = True) -> None: ...
+    pass
+class LLMEngine():
+    def __init__(self) -> None: ...
+    def add_prompt_generator(self, prompt_generator: LLMPromptGenerator) -> None: ...
+    def run(self, input_message: morpheus._lib.messages.ControlMessage) -> typing.List[morpheus._lib.messages.ControlMessage]: ...
+    pass
+class LLMGeneratePrompt():
+    def __init__(self) -> None: ...
+    pass
+class LLMGenerateResult():
+    def __init__(self) -> None: ...
+    pass
+class LLMPromptGenerator():
+    def __init__(self) -> None: ...
+    def try_handle(self, arg0: LLMEngine, arg1: LLMTask, arg2: morpheus._lib.messages.ControlMessage) -> typing.Optional[typing.Union[LLMGeneratePrompt, LLMGenerateResult]]: ...
+    pass
+class LLMTask():
+    def __init__(self) -> None: ...
     pass
 class PreallocateMessageMetaStage(mrc.core.segment.SegmentObject):
     def __init__(self, builder: mrc.core.segment.Builder, name: str, needed_columns: typing.List[typing.Tuple[str, morpheus._lib.common.TypeId]]) -> None: ...
