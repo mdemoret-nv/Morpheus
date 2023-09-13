@@ -27,6 +27,7 @@ __all__ = [
     "LLMGenerateResult",
     "LLMPromptGenerator",
     "LLMTask",
+    "LLMTaskHandler",
     "PreallocateMessageMetaStage",
     "PreallocateMultiMessageStage",
     "PreprocessFILStage",
@@ -63,6 +64,7 @@ class KafkaSourceStage(mrc.core.segment.SegmentObject):
 class LLMEngine():
     def __init__(self) -> None: ...
     def add_prompt_generator(self, prompt_generator: LLMPromptGenerator) -> None: ...
+    def add_task_handler(self, task_handler: LLMTaskHandler) -> None: ...
     def run(self, input_message: morpheus._lib.messages.ControlMessage) -> typing.List[morpheus._lib.messages.ControlMessage]: ...
     pass
 class LLMGeneratePrompt():
@@ -77,6 +79,10 @@ class LLMPromptGenerator():
     pass
 class LLMTask():
     def __init__(self) -> None: ...
+    pass
+class LLMTaskHandler():
+    def __init__(self) -> None: ...
+    def try_handle(self, arg0: LLMEngine, arg1: LLMTask, arg2: morpheus._lib.messages.ControlMessage, arg3: LLMGenerateResult) -> typing.Optional[typing.List[morpheus._lib.messages.ControlMessage]]: ...
     pass
 class PreallocateMessageMetaStage(mrc.core.segment.SegmentObject):
     def __init__(self, builder: mrc.core.segment.Builder, name: str, needed_columns: typing.List[typing.Tuple[str, morpheus._lib.common.TypeId]]) -> None: ...

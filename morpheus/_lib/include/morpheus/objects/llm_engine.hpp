@@ -22,6 +22,7 @@
 #include <pybind11/pytypes.h>
 
 #include <memory>
+#include <stdexcept>
 #include <variant>
 
 namespace morpheus::llm {
@@ -44,9 +45,21 @@ class LLMPromptGenerator
         LLMEngine& engine, const LLMTask& input_task, std::shared_ptr<ControlMessage> input_message) = 0;
 };
 
+class LLMTaskHandler
+{
+  public:
+    virtual std::optional<std::vector<std::shared_ptr<ControlMessage>>> try_handle(
+        LLMEngine& engine,
+        const LLMTask& input_task,
+        std::shared_ptr<ControlMessage> input_message,
+        const LLMGenerateResult& responses) = 0;
+};
+
 class LLMEngine
 {
   public:
+    using prompt_t = std::variant<LLMGeneratePrompt, LLMGenerateResult>;
+
     LLMEngine() = default;
 
     virtual void add_prompt_generator(std::shared_ptr<LLMPromptGenerator> prompt_generator)
@@ -54,27 +67,94 @@ class LLMEngine
         m_prompt_generators.push_back(prompt_generator);
     }
 
+    virtual void add_task_handler(std::shared_ptr<LLMTaskHandler> task_handler)
+    {
+        m_task_handlers.push_back(task_handler);
+    }
+
     virtual std::vector<std::shared_ptr<ControlMessage>> run(std::shared_ptr<ControlMessage> input_message)
     {
+        if (!input_message)
+        {
+            throw std::runtime_error("LLMEngine::run() called with a null message");
+        }
+
+        if (!input_message->has_task("llm_engine"))
+        {
+            throw std::runtime_error("LLMEngine::run() called with a message that does not have the 'llm_engine' task");
+        }
+
         std::vector<std::shared_ptr<ControlMessage>> output_messages;
 
-        for (auto& prompt_generator : m_prompt_generators)
+        while (input_message->has_task("llm_engine"))
         {
-            auto result = prompt_generator->try_handle(*this, LLMTask{}, input_message);
+            auto current_task = input_message->remove_task("llm_engine");
 
-            if (result)
+            // Temp create an instance of LLMTask for type safety
+            LLMTask tmp_task;
+
+            auto prompts = this->generate_prompts(tmp_task, input_message);
+            LLMGenerateResult results;
+
+            if (std::holds_alternative<LLMGeneratePrompt>(prompts))
             {
-                if (std::holds_alternative<LLMGeneratePrompt>(*result)) {}
+                auto gen_prompt = std::get<LLMGeneratePrompt>(prompts);
 
-                break;
+                results = this->execute_model(gen_prompt);
             }
+            else
+            {
+                results = std::get<LLMGenerateResult>(prompts);
+            }
+
+            auto tasks = this->handle_tasks(tmp_task, input_message, results);
+
+            output_messages.insert(output_messages.end(), tasks.begin(), tasks.end());
         }
 
         return output_messages;
     }
 
   private:
+    prompt_t generate_prompts(const LLMTask& input_task, std::shared_ptr<ControlMessage> input_message)
+    {
+        for (auto& prompt_generator : m_prompt_generators)
+        {
+            auto prompt_result = prompt_generator->try_handle(*this, input_task, input_message);
+
+            if (prompt_result.has_value())
+            {
+                return prompt_result.value();
+            }
+        }
+
+        throw std::runtime_error("No prompt generator was able to handle the input message");
+    }
+
+    LLMGenerateResult execute_model(const LLMGeneratePrompt& prompt)
+    {
+        return LLMGenerateResult{};
+    }
+
+    std::vector<std::shared_ptr<ControlMessage>> handle_tasks(const LLMTask& input_task,
+                                                              std::shared_ptr<ControlMessage> input_message,
+                                                              const LLMGenerateResult& results)
+    {
+        for (auto& task_handler : m_task_handlers)
+        {
+            auto new_tasks = task_handler->try_handle(*this, input_task, input_message, results);
+
+            if (new_tasks.has_value())
+            {
+                return new_tasks.value();
+            }
+        }
+
+        throw std::runtime_error("No task handler was able to handle the input message and responses generated");
+    }
+
     std::vector<std::shared_ptr<LLMPromptGenerator>> m_prompt_generators;
+    std::vector<std::shared_ptr<LLMTaskHandler>> m_task_handlers;
 };
 
 }  // namespace morpheus::llm
