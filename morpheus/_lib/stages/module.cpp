@@ -553,9 +553,20 @@ PYBIND11_MODULE(stages, _module)
 
     py::class_<llm::LLMTask>(_module, "LLMTask").def(py::init<>());
 
-    py::class_<llm::LLMGeneratePrompt>(_module, "LLMGeneratePrompt").def(py::init<>());
+    py::class_<llm::LLMGeneratePrompt>(_module, "LLMGeneratePrompt")
+        .def(py::init<>())
+        .def_readwrite("model_name", &llm::LLMGeneratePrompt::model_name)
+        .def_property(
+            "model_kwargs",
+            [](llm::LLMGeneratePrompt& self) { return mrc::pymrc::cast_from_json(self.model_kwargs); },
+            [](llm::LLMGeneratePrompt& self, py::dict model_kwargs) {
+                self.model_kwargs = mrc::pymrc::cast_from_pyobject(model_kwargs);
+            })
+        .def_readwrite("prompts", &llm::LLMGeneratePrompt::prompts);
 
-    py::class_<llm::LLMGenerateResult>(_module, "LLMGenerateResult").def(py::init<>());
+    py::class_<llm::LLMGenerateResult, llm::LLMGeneratePrompt>(_module, "LLMGenerateResult")
+        .def(py::init<>())
+        .def_readwrite("responses", &llm::LLMGenerateResult::responses);
 
     auto LLMPromptGenerator =
         py::class_<llm::LLMPromptGenerator, PyLLMPromptGenerator, std::shared_ptr<llm::LLMPromptGenerator>>(

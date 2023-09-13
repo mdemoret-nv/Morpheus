@@ -33,10 +33,16 @@ struct LLMTask
 {};
 
 struct LLMGeneratePrompt
-{};
+{
+    std::string model_name;
+    nlohmann::json model_kwargs;
+    std::vector<std::string> prompts;
+};
 
-struct LLMGenerateResult
-{};
+struct LLMGenerateResult : public LLMGeneratePrompt
+{
+    std::vector<std::string> responses;
+};
 
 class LLMPromptGenerator
 {

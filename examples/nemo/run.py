@@ -33,6 +33,7 @@ from langchain.memory import ConversationBufferMemory
 from langchain.prompts import MessagesPlaceholder
 from langchain.schema import SystemMessage
 from nemo_example.llm_engine import DefaultTaskHandler
+from nemo_example.llm_engine import LLMEngine
 from nemo_example.llm_engine import LLMTask
 from nemo_example.llm_engine import LLMTemplateTask
 from nemo_example.llm_engine import TemplatePromptGenerator
@@ -246,7 +247,7 @@ def run_pipeline(
     ]
     agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
 
-    engine = LlmEngine()
+    engine = LLMEngine()
 
     engine.add_prompt_generator(LangChainAgentExectorPromptGenerator(agent))
 

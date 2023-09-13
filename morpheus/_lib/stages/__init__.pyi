@@ -69,9 +69,41 @@ class LLMEngine():
     pass
 class LLMGeneratePrompt():
     def __init__(self) -> None: ...
+    @property
+    def model_kwargs(self) -> object:
+        """
+        :type: object
+        """
+    @model_kwargs.setter
+    def model_kwargs(self, arg1: dict) -> None:
+        pass
+    @property
+    def model_name(self) -> str:
+        """
+        :type: str
+        """
+    @model_name.setter
+    def model_name(self, arg0: str) -> None:
+        pass
+    @property
+    def prompts(self) -> typing.List[str]:
+        """
+        :type: typing.List[str]
+        """
+    @prompts.setter
+    def prompts(self, arg0: typing.List[str]) -> None:
+        pass
     pass
-class LLMGenerateResult():
+class LLMGenerateResult(LLMGeneratePrompt):
     def __init__(self) -> None: ...
+    @property
+    def responses(self) -> typing.List[str]:
+        """
+        :type: typing.List[str]
+        """
+    @responses.setter
+    def responses(self, arg0: typing.List[str]) -> None:
+        pass
     pass
 class LLMPromptGenerator():
     def __init__(self) -> None: ...
