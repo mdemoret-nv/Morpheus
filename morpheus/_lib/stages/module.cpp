@@ -44,10 +44,12 @@
 #include <mrc/segment/object.hpp>
 #include <mrc/utils/string_utils.hpp>
 #include <pybind11/attr.h>  // for multiple_inheritance
+#include <pybind11/detail/common.h>
 #include <pybind11/gil.h>
 #include <pybind11/pybind11.h>  // for arg, init, class_, module_, str_attr_accessor, PYBIND11_MODULE, pybind11
 #include <pybind11/pytypes.h>   // for dict, sequence
 #include <pybind11/stl.h>
+#include <pymrc/types.hpp>
 #include <pymrc/utils.hpp>  // for pymrc::import
 #include <rxcpp/rx.hpp>
 
@@ -55,7 +57,9 @@
 #include <map>
 #include <memory>
 #include <sstream>
+#include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace morpheus {
@@ -126,10 +130,237 @@ std::function<void()> create_gil_initializer()
     };
 }
 
+class PyLLMService : public llm::LLMService
+{
+  public:
+    llm::LLMGenerateResult generate(llm::LLMGeneratePrompt prompt) const override
+    {
+        using return_t = llm::LLMGenerateResult;
+
+        pybind11 ::gil_scoped_acquire gil;
+
+        pybind11 ::function override = pybind11 ::get_override(static_cast<const llm ::LLMService*>(this), "generate");
+
+        if (!override)
+        {
+            // Problem
+            pybind11 ::pybind11_fail(
+                "Tried to call pure virtual function \""
+                "llm::LLMService"
+                "::"
+                "generate"
+                "\"");
+        }
+
+        auto override_result = override(prompt);
+
+        // Now determine if the override result is a coroutine or not
+        if (py::module::import("asyncio").attr("iscoroutine")(override_result).cast<bool>())
+        {
+            py::print("Returned a coroutine");
+
+            // Need to schedule the result to run on the loop
+            auto future = py::module::import("asyncio").attr("run_coroutine_threadsafe")(override_result, m_loop);
+
+            // We are a dask future. Quickly check if its done, then release
+            while (!future.attr("done")().cast<bool>())
+            {
+                // Release the GIL and wait for it to be done
+                py::gil_scoped_release nogil;
+
+                boost::this_fiber::yield();
+            }
+
+            // Completed, move into the returned object
+            override_result = future.attr("result")();
+        }
+        else
+        {
+            py::print("Did not return a coroutine");
+        }
+
+        // Now cast back to the C++ type
+        if (pybind11 ::detail ::cast_is_temporary_value_reference<return_t>::value)
+        {
+            static pybind11 ::detail ::override_caster_t<return_t> caster;
+            return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
+        }
+        return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
+    }
+
+  private:
+    void set_loop(py::object loop)
+    {
+        m_loop = std::move(loop);
+    }
+
+    mrc::pymrc::PyHolder m_loop;
+
+    friend class PyLLMEngine;
+};
+
+class PyLLMPromptGenerator : public llm::LLMPromptGenerator
+{
+  public:
+    using llm::LLMPromptGenerator::LLMPromptGenerator;
+
+    std::optional<std::variant<llm::LLMGeneratePrompt, llm::LLMGenerateResult>> try_handle(
+        llm::LLMEngine& engine, const llm::LLMTask& input_task, std::shared_ptr<ControlMessage> input_message) override
+    {
+        using return_t = std::optional<std::variant<llm::LLMGeneratePrompt, llm::LLMGenerateResult>>;
+
+        pybind11 ::gil_scoped_acquire gil;
+
+        pybind11 ::function override =
+            pybind11 ::get_override(static_cast<const llm ::LLMPromptGenerator*>(this), "try_handle");
+
+        if (!override)
+        {
+            // Problem
+            pybind11 ::pybind11_fail(
+                "Tried to call pure virtual function \""
+                "llm::LLMPromptGenerator"
+                "::"
+                "try_handle"
+                "\"");
+        }
+
+        auto override_result = override(engine, input_task, input_message);
+
+        // Now determine if the override result is a coroutine or not
+        if (py::module::import("asyncio").attr("iscoroutine")(override_result).cast<bool>())
+        {
+            py::print("Returned a coroutine");
+
+            // Need to schedule the result to run on the loop
+            auto future = py::module::import("asyncio").attr("run_coroutine_threadsafe")(override_result, m_loop);
+
+            // We are a dask future. Quickly check if its done, then release
+            while (!future.attr("done")().cast<bool>())
+            {
+                // Release the GIL and wait for it to be done
+                py::gil_scoped_release nogil;
+
+                boost::this_fiber::yield();
+            }
+
+            // Completed, move into the returned object
+            override_result = future.attr("result")();
+        }
+        else
+        {
+            py::print("Did not return a coroutine");
+        }
+
+        // Now cast back to the C++ type
+        if (pybind11 ::detail ::cast_is_temporary_value_reference<return_t>::value)
+        {
+            static pybind11 ::detail ::override_caster_t<return_t> caster;
+            return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
+        }
+        return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
+    }
+
+  private:
+    std::optional<std::variant<llm::LLMGeneratePrompt, llm::LLMGenerateResult>> inner_try_handle(
+        llm::LLMEngine& engine, const llm::LLMTask& input_task, std::shared_ptr<ControlMessage> input_message)
+    {
+        using return_t = std::optional<std::variant<llm::LLMGeneratePrompt, llm::LLMGenerateResult>>;
+
+        PYBIND11_OVERLOAD_PURE(return_t, llm ::LLMPromptGenerator, try_handle, engine, input_task, input_message);
+    }
+
+  private:
+    void set_loop(py::object loop)
+    {
+        m_loop = std::move(loop);
+    }
+
+    mrc::pymrc::PyHolder m_loop;
+
+    friend class PyLLMEngine;
+};
+
+class PyLLMTaskHandler : public llm::LLMTaskHandler
+{
+  public:
+    using llm::LLMTaskHandler::LLMTaskHandler;
+
+    std::optional<std::vector<std::shared_ptr<ControlMessage>>> try_handle(
+        llm::LLMEngine& engine,
+        const llm::LLMTask& input_task,
+        std::shared_ptr<ControlMessage> input_message,
+        const llm::LLMGenerateResult& responses) override
+    {
+        using return_t = std::optional<std::vector<std::shared_ptr<ControlMessage>>>;
+
+        pybind11 ::gil_scoped_acquire gil;
+
+        pybind11 ::function override =
+            pybind11 ::get_override(static_cast<const llm ::LLMTaskHandler*>(this), "try_handle");
+
+        if (!override)
+        {
+            // Problem
+            pybind11 ::pybind11_fail(
+                "Tried to call pure virtual function \""
+                "llm::LLMTaskHandler"
+                "::"
+                "try_handle"
+                "\"");
+        }
+
+        auto override_result = override(engine, input_task, input_message, responses);
+
+        // Now determine if the override result is a coroutine or not
+        if (py::module::import("asyncio").attr("iscoroutine")(override_result).cast<bool>())
+        {
+            py::print("Returned a coroutine");
+
+            // Need to schedule the result to run on the loop
+            auto future = py::module::import("asyncio").attr("run_coroutine_threadsafe")(override_result, m_loop);
+
+            // We are a dask future. Quickly check if its done, then release
+            while (!future.attr("done")().cast<bool>())
+            {
+                // Release the GIL and wait for it to be done
+                py::gil_scoped_release nogil;
+
+                boost::this_fiber::yield();
+            }
+
+            // Completed, move into the returned object
+            override_result = future.attr("result")();
+        }
+        else
+        {
+            py::print("Did not return a coroutine");
+        }
+
+        // Now cast back to the C++ type
+        if (pybind11 ::detail ::cast_is_temporary_value_reference<return_t>::value)
+        {
+            static pybind11 ::detail ::override_caster_t<return_t> caster;
+            return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
+        }
+        return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
+    }
+
+  private:
+    void set_loop(py::object loop)
+    {
+        m_loop = std::move(loop);
+    }
+
+    mrc::pymrc::PyHolder m_loop;
+
+    friend class PyLLMEngine;
+};
+
 class PyLLMEngine : public llm::LLMEngine
 {
   public:
-    PyLLMEngine() : llm::LLMEngine()
+    PyLLMEngine(std::shared_ptr<llm::LLMService> llm_service) : llm::LLMEngine(llm_service)
     {
         std::promise<void> loop_ready;
 
@@ -175,6 +406,18 @@ class PyLLMEngine : public llm::LLMEngine
             future.get();
         }
 
+        // Finally, try and see if our LLM Service is a python object and keep it alive
+        auto py_llm_service = std::dynamic_pointer_cast<PyLLMService>(llm_service);
+
+        if (py_llm_service)
+        {
+            // Store the python object to keep it alive
+            m_py_llm_service = py::cast(llm_service);
+
+            // Also, set the loop on the service
+            py_llm_service->set_loop(m_loop);
+        }
+
         py::print("Engine started");
     }
 
@@ -192,10 +435,16 @@ class PyLLMEngine : public llm::LLMEngine
     void add_prompt_generator(std::shared_ptr<llm::LLMPromptGenerator> prompt_generator) override
     {
         // Try to cast the object to a python object to ensure that we keep it alive
-        auto py_prompt_generator = py::cast(prompt_generator);
+        auto py_prompt_generator = std::dynamic_pointer_cast<PyLLMPromptGenerator>(prompt_generator);
 
-        // Store the prompt generator in an array to keep it alive
-        m_py_prompt_generators[prompt_generator] = py_prompt_generator;
+        if (py_prompt_generator)
+        {
+            // Store the python object to keep it alive
+            m_py_prompt_generators[prompt_generator] = py::cast(prompt_generator);
+
+            // Also, set the loop on the service
+            py_prompt_generator->set_loop(m_loop);
+        }
 
         // Call the base class implementation
         llm::LLMEngine::add_prompt_generator(prompt_generator);
@@ -204,10 +453,16 @@ class PyLLMEngine : public llm::LLMEngine
     void add_task_handler(std::shared_ptr<llm::LLMTaskHandler> task_handler) override
     {
         // Try to cast the object to a python object to ensure that we keep it alive
-        auto py_task_handler = py::cast(task_handler);
+        auto py_task_handler = std::dynamic_pointer_cast<PyLLMTaskHandler>(task_handler);
 
-        // Store the task handler in an array to keep it alive
-        m_py_task_handler[task_handler] = py_task_handler;
+        if (py_task_handler)
+        {
+            // Store the python object to keep it alive
+            m_py_task_handler[task_handler] = py::cast(task_handler);
+
+            // Also, set the loop on the service
+            py_task_handler->set_loop(m_loop);
+        }
 
         // Call the base class implementation
         llm::LLMEngine::add_task_handler(task_handler);
@@ -229,154 +484,10 @@ class PyLLMEngine : public llm::LLMEngine
     std::thread m_thread;
     py::object m_loop;
 
+    // Keep the python objects alive by saving references in this object
+    py::object m_py_llm_service;
     std::map<std::shared_ptr<llm::LLMPromptGenerator>, py::object> m_py_prompt_generators;
     std::map<std::shared_ptr<llm::LLMTaskHandler>, py::object> m_py_task_handler;
-};
-
-class PyLLMPromptGenerator : public llm::LLMPromptGenerator
-{
-  public:
-    using llm::LLMPromptGenerator::LLMPromptGenerator;
-
-    std::optional<std::variant<llm::LLMGeneratePrompt, llm::LLMGenerateResult>> try_handle(
-        llm::LLMEngine& engine, const llm::LLMTask& input_task, std::shared_ptr<ControlMessage> input_message) override
-    {
-        using return_t = std::optional<std::variant<llm::LLMGeneratePrompt, llm::LLMGenerateResult>>;
-
-        pybind11 ::gil_scoped_acquire gil;
-
-        pybind11 ::function override =
-            pybind11 ::get_override(static_cast<const llm ::LLMPromptGenerator*>(this), "try_handle");
-
-        if (!override)
-        {
-            // Problem
-            pybind11 ::pybind11_fail(
-                "Tried to call pure virtual function \""
-                "llm::LLMPromptGenerator"
-                "::"
-                "try_handle"
-                "\"");
-        }
-
-        auto override_result = override(engine, input_task, input_message);
-
-        // Now determine if the override result is a coroutine or not
-        if (py::module::import("asyncio").attr("iscoroutine")(override_result).cast<bool>())
-        {
-            py::print("Returned a coroutine");
-
-            // We need to schedule the coroutine to run on the event loop. Cast the llm engine to get that
-            auto& py_engine = dynamic_cast<PyLLMEngine&>(engine);
-
-            // Need to schedule the result to run on the loop
-            auto future =
-                py::module::import("asyncio").attr("run_coroutine_threadsafe")(override_result, py_engine.get_loop());
-
-            // We are a dask future. Quickly check if its done, then release
-            while (!future.attr("done")().cast<bool>())
-            {
-                // Release the GIL and wait for it to be done
-                py::gil_scoped_release nogil;
-
-                boost::this_fiber::yield();
-            }
-
-            // Completed, move into the returned object
-            override_result = future.attr("result")();
-        }
-        else
-        {
-            py::print("Did not return a coroutine");
-        }
-
-        // Now cast back to the C++ type
-        if (pybind11 ::detail ::cast_is_temporary_value_reference<return_t>::value)
-        {
-            static pybind11 ::detail ::override_caster_t<return_t> caster;
-            return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
-        }
-        return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
-    }
-
-  private:
-    std::optional<std::variant<llm::LLMGeneratePrompt, llm::LLMGenerateResult>> inner_try_handle(
-        llm::LLMEngine& engine, const llm::LLMTask& input_task, std::shared_ptr<ControlMessage> input_message)
-    {
-        using return_t = std::optional<std::variant<llm::LLMGeneratePrompt, llm::LLMGenerateResult>>;
-
-        PYBIND11_OVERLOAD_PURE(return_t, llm ::LLMPromptGenerator, try_handle, engine, input_task, input_message);
-    }
-};
-
-class PyLLMTaskHandler : public llm::LLMTaskHandler
-{
-  public:
-    using llm::LLMTaskHandler::LLMTaskHandler;
-
-    std::optional<std::vector<std::shared_ptr<ControlMessage>>> try_handle(
-        llm::LLMEngine& engine,
-        const llm::LLMTask& input_task,
-        std::shared_ptr<ControlMessage> input_message,
-        const llm::LLMGenerateResult& responses) override
-    {
-        using return_t = std::optional<std::vector<std::shared_ptr<ControlMessage>>>;
-
-        pybind11 ::gil_scoped_acquire gil;
-
-        pybind11 ::function override =
-            pybind11 ::get_override(static_cast<const llm ::LLMTaskHandler*>(this), "try_handle");
-
-        if (!override)
-        {
-            // Problem
-            pybind11 ::pybind11_fail(
-                "Tried to call pure virtual function \""
-                "llm::LLMTaskHandler"
-                "::"
-                "try_handle"
-                "\"");
-        }
-
-        auto override_result = override(engine, input_task, input_message, responses);
-
-        // Now determine if the override result is a coroutine or not
-        if (py::module::import("asyncio").attr("iscoroutine")(override_result).cast<bool>())
-        {
-            py::print("Returned a coroutine");
-
-            // We need to schedule the coroutine to run on the event loop. Cast the llm engine to get that
-            auto& py_engine = dynamic_cast<PyLLMEngine&>(engine);
-
-            // Need to schedule the result to run on the loop
-            auto future =
-                py::module::import("asyncio").attr("run_coroutine_threadsafe")(override_result, py_engine.get_loop());
-
-            // We are a dask future. Quickly check if its done, then release
-            while (!future.attr("done")().cast<bool>())
-            {
-                // Release the GIL and wait for it to be done
-                py::gil_scoped_release nogil;
-
-                boost::this_fiber::yield();
-            }
-
-            // Completed, move into the returned object
-            override_result = future.attr("result")();
-        }
-        else
-        {
-            py::print("Did not return a coroutine");
-        }
-
-        // Now cast back to the C++ type
-        if (pybind11 ::detail ::cast_is_temporary_value_reference<return_t>::value)
-        {
-            static pybind11 ::detail ::override_caster_t<return_t> caster;
-            return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
-        }
-        return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
-    }
 };
 
 PYBIND11_MODULE(stages, _module)
@@ -551,10 +662,66 @@ PYBIND11_MODULE(stages, _module)
              py::arg("include_index_col") = true,
              py::arg("flush")             = false);
 
-    py::class_<llm::LLMTask>(_module, "LLMTask").def(py::init<>());
+    py::class_<llm::LLMTask>(_module, "LLMTask")
+        .def(py::init<>())
+        .def(py::init([](std::string task_type, py::dict task_dict) {
+            return llm::LLMTask(std::move(task_type), mrc::pymrc::cast_from_pyobject(task_dict));
+        }))
+        .def_readonly("task_type", &llm::LLMTask::task_type)
+        .def("__getitem__",
+             [](const llm::LLMTask& self, const std::string& key) {
+                 try
+                 {
+                     return mrc::pymrc::cast_from_json(self.get(key));
+                 } catch (const std::out_of_range&)
+                 {
+                     throw py::key_error("key '" + key + "' does not exist");
+                 }
+             })
+        .def("__setitem__",
+             [](llm::LLMTask& self, const std::string& key, py::object value) {
+                 try
+                 {
+                     // Convert to C++ nholman object
+
+                     return self.set(key, mrc::pymrc::cast_from_pyobject(std::move(value)));
+                 } catch (const std::out_of_range&)
+                 {
+                     throw py::key_error("key '" + key + "' does not exist");
+                 }
+             })
+        .def("__len__", &llm::LLMTask::size)
+        .def("get", [](const llm::LLMTask& self, const std::string& key, py::object default_value) {
+            try
+            {
+                return mrc::pymrc::cast_from_json(self.get(key));
+            } catch (const nlohmann::detail::out_of_range&)
+            {
+                return default_value;
+            }
+        });
+    // .def(
+    //     "__iter__",
+    //     [](const StringMap& map) { return py::make_key_iterator(map.begin(), map.end()); },
+    //     py::keep_alive<0, 1>())
+    // .def(
+    //     "items",
+    //     [](const StringMap& map) { return py::make_iterator(map.begin(), map.end()); },
+    //     py::keep_alive<0, 1>())
+    // .def(
+    //     "values",
+    //     [](const StringMap& map) { return py::make_value_iterator(map.begin(), map.end()); },
+    //     py::keep_alive<0, 1>());
 
     py::class_<llm::LLMGeneratePrompt>(_module, "LLMGeneratePrompt")
         .def(py::init<>())
+        .def(py::init([](std::string model_name, py::dict model_kwargs, std::vector<std::string> prompts) {
+                 return llm::LLMGeneratePrompt(
+                     std::move(model_name), mrc::pymrc::cast_from_pyobject(model_kwargs), std::move(prompts));
+             }),
+             py::arg("model_name"),
+             py::arg("model_kwargs"),
+             py::arg("prompts"))
         .def_readwrite("model_name", &llm::LLMGeneratePrompt::model_name)
         .def_property(
             "model_kwargs",
@@ -565,8 +732,14 @@ PYBIND11_MODULE(stages, _module)
         .def_readwrite("prompts", &llm::LLMGeneratePrompt::prompts);
 
     py::class_<llm::LLMGenerateResult, llm::LLMGeneratePrompt>(_module, "LLMGenerateResult")
-        .def(py::init<>())
+        .def(py::init([]() { return llm::LLMGenerateResult(); }))
+        .def(py::init([](llm::LLMGeneratePrompt& other, std::vector<std::string> responses) {
+            return llm::LLMGenerateResult(other, std::move(responses));
+        }))
         .def_readwrite("responses", &llm::LLMGenerateResult::responses);
+
+    auto LLMService =
+        py::class_<llm::LLMService, PyLLMService, std::shared_ptr<llm::LLMService>>(_module, "LLMService");
 
     auto LLMPromptGenerator =
         py::class_<llm::LLMPromptGenerator, PyLLMPromptGenerator, std::shared_ptr<llm::LLMPromptGenerator>>(
@@ -577,11 +750,17 @@ PYBIND11_MODULE(stages, _module)
 
     auto LLMEngine = py::class_<llm::LLMEngine, PyLLMEngine, std::shared_ptr<llm::LLMEngine>>(_module, "LLMEngine");
 
+    LLMService.def(py::init<>()).def("generate", &llm::LLMService::generate);
+
     LLMPromptGenerator.def(py::init<>()).def("try_handle", &llm::LLMPromptGenerator::try_handle);
 
     LLMTaskHandler.def(py::init<>()).def("try_handle", &llm::LLMTaskHandler::try_handle);
 
-    LLMEngine.def(py::init_alias<>())
+    LLMEngine
+        .def(py::init_alias<std::shared_ptr<llm::LLMService>>(), py::arg("llm_service"))
+        // .def(py::init([](std::shared_ptr<llm::LLMService> llm_service) {
+        //     return std::make_shared<PyLLMEngine>(std::move(llm_service));
+        // }))
         .def("add_prompt_generator", &llm::LLMEngine::add_prompt_generator, py::arg("prompt_generator"))
         .def("add_task_handler", &llm::LLMEngine::add_task_handler, py::arg("task_handler"))
         .def("run", &llm::LLMEngine::run, py::arg("input_message"));

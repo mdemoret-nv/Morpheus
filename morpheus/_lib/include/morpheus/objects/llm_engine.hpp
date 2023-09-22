@@ -21,8 +21,11 @@
 
 #include <pybind11/pytypes.h>
 
+#include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <utility>
 #include <variant>
 
 namespace morpheus::llm {
@@ -30,10 +33,42 @@ namespace morpheus::llm {
 class LLMEngine;
 
 struct LLMTask
-{};
+{
+    LLMTask() = default;
+    LLMTask(std::string task_type, nlohmann::json task_dict) :
+      task_type(std::move(task_type)),
+      task_dict(std::move(task_dict))
+    {}
+
+    std::string task_type;
+
+    size_t size() const
+    {
+        return this->task_dict.size();
+    }
+
+    nlohmann::basic_json<>::const_reference get(const std::string& key) const
+    {
+        return this->task_dict.at(key);
+    }
+
+    void set(const std::string& key, nlohmann::basic_json<>::value_type value)
+    {
+        this->task_dict[key] = std::move(value);
+    }
+
+    nlohmann::json task_dict;
+};
 
 struct LLMGeneratePrompt
 {
+    LLMGeneratePrompt() = default;
+    LLMGeneratePrompt(std::string model_name, nlohmann::json model_kwargs, std::vector<std::string> prompts) :
+      model_name(std::move(model_name)),
+      model_kwargs(std::move(model_kwargs)),
+      prompts(std::move(prompts))
+    {}
+
     std::string model_name;
     nlohmann::json model_kwargs;
     std::vector<std::string> prompts;
@@ -41,7 +76,20 @@ struct LLMGeneratePrompt
 
 struct LLMGenerateResult : public LLMGeneratePrompt
 {
+    LLMGenerateResult() = default;
+
+    LLMGenerateResult(const LLMGeneratePrompt& other, std::vector<std::string> responses) :
+      LLMGeneratePrompt(other),
+      responses(std::move(responses))
+    {}
+
     std::vector<std::string> responses;
+};
+
+class LLMService
+{
+  public:
+    virtual LLMGenerateResult generate(LLMGeneratePrompt prompt) const = 0;
 };
 
 class LLMPromptGenerator
@@ -66,7 +114,12 @@ class LLMEngine
   public:
     using prompt_t = std::variant<LLMGeneratePrompt, LLMGenerateResult>;
 
-    LLMEngine() = default;
+    LLMEngine(std::shared_ptr<LLMService> llm_service) : m_llm_service(std::move(llm_service)) {}
+
+    std::shared_ptr<LLMService> get_llm_service() const
+    {
+        return m_llm_service;
+    }
 
     virtual void add_prompt_generator(std::shared_ptr<LLMPromptGenerator> prompt_generator)
     {
@@ -97,7 +150,7 @@ class LLMEngine
             auto current_task = input_message->remove_task("llm_engine");
 
             // Temp create an instance of LLMTask for type safety
-            LLMTask tmp_task;
+            LLMTask tmp_task(current_task["task_type"].get<std::string>(), current_task.at("task_dict"));
 
             auto prompts = this->generate_prompts(tmp_task, input_message);
             LLMGenerateResult results;
@@ -139,7 +192,7 @@ class LLMEngine
 
     LLMGenerateResult execute_model(const LLMGeneratePrompt& prompt)
     {
-        return LLMGenerateResult{};
+        return m_llm_service->generate(prompt);
     }
 
     std::vector<std::shared_ptr<ControlMessage>> handle_tasks(const LLMTask& input_task,
@@ -159,6 +212,7 @@ class LLMEngine
         throw std::runtime_error("No task handler was able to handle the input message and responses generated");
     }
 
+    std::shared_ptr<LLMService> m_llm_service;
     std::vector<std::shared_ptr<LLMPromptGenerator>> m_prompt_generators;
     std::vector<std::shared_ptr<LLMTaskHandler>> m_task_handlers;
 };

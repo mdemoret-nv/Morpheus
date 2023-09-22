@@ -4,6 +4,8 @@ import typing
 from langchain.agents import AgentExecutor
 from langchain.agents import AgentType
 from langchain.agents import initialize_agent
+from nemo_example.llm_engine import LLMDictTask
+from nemo_example.nemo_service import NeMoService
 
 import cudf
 
@@ -11,10 +13,31 @@ from morpheus._lib.stages import LLMEngine
 from morpheus._lib.stages import LLMGeneratePrompt
 from morpheus._lib.stages import LLMGenerateResult
 from morpheus._lib.stages import LLMPromptGenerator
+from morpheus._lib.stages import LLMService
 from morpheus._lib.stages import LLMTask
 from morpheus._lib.stages import LLMTaskHandler
 from morpheus.messages import ControlMessage
 from morpheus.messages import MessageMeta
+
+
+class NeMoLLMService(LLMService):
+
+    def __init__(self, *, api_key: str | None = None, org_id: str | None = None):
+
+        super().__init__()
+
+        self._api_key = api_key
+        self._org_id = org_id
+
+        self._nemo_service: NeMoService = NeMoService.instance(api_key=api_key, org_id=org_id)
+
+    async def generate(self, prompt: LLMGeneratePrompt) -> LLMGenerateResult:
+
+        client = self._nemo_service.get_client(model_name=prompt.model_name, infer_kwargs=prompt.model_kwargs)
+
+        responses = await client.generate(prompt.prompts)
+
+        return LLMGenerateResult(prompt, responses)
 
 
 def run_langchain_example():
@@ -120,87 +143,101 @@ def run_langchain_example():
 
 def run_spearphishing_example():
 
-class TemplatePromptGenerator(LLMPromptGenerator):
+    class TemplatePromptGenerator(LLMPromptGenerator):
 
-    def try_handle(self, input_task: dict,
-                    input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult | None:
+        def __init__(self, template: str) -> None:
+            super().__init__()
 
-        if (input_task["task_type"] != "template"):
-            return None
+            self._template = template
 
-        input_keys = input_task["input_keys"]
+        def try_handle(self, engine: LLMEngine, input_task: LLMTask,
+                       input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult | None:
 
-        with input_message.payload().mutable_dataframe() as df:
-            input_dict: list[dict] = df[input_keys].to_dict(orient="records")
+            if (input_task.task_type != "template"):
+                return None
 
-        template: str = input_task["template"]
+            input_keys = input_task["input_keys"]
 
-        prompts = [template.format(**x) for x in input_dict]
+            with input_message.payload().mutable_dataframe() as df:
+                input_dict: list[dict] = df[input_keys].to_dict(orient="records")
 
-        return LLMGeneratePrompt(model_name=input_task["model_name"],
-                                    model_kwargs=input_task["model_kwargs"],
-                                    prompts=prompts)
+            template: str = input_task.get("template", self._template)
 
-class QualityCheckTaskHandler(LLMTaskHandler):
+            prompts = [template.format(**x) for x in input_dict]
 
-    def _check_quality(self, response: str) -> bool:
-        # Some sort of check here
-        pass
+            return LLMGeneratePrompt(model_name=input_task["model_name"],
+                                     model_kwargs=input_task["model_kwargs"],
+                                     prompts=prompts)
 
-    def try_handle(self, engine: LLMEngine, task: LLMTask, message: ControlMessage,
-                    result: LLMGenerateResult) -> typing.Optional[list[ControlMessage]]:
+    class QualityCheckTaskHandler(LLMTaskHandler):
 
-        # Loop over all responses and check if they pass the quality check
-        passed_check = [self._check_quality(r) for r in result.responses]
+        def _check_quality(self, response: str) -> bool:
+            # Some sort of check here
+            return True
 
-        with message.payload().mutable_dataframe() as df:
-            df["emails"] = result.responses
+        def try_handle(self, engine: LLMEngine, task: LLMTask, message: ControlMessage,
+                       result: LLMGenerateResult) -> typing.Optional[list[ControlMessage]]:
 
-            if (not all(passed_check)):
-                # Need to separate into 2 messages
-                good_message = ControlMessage()
-                good_message.payload(MessageMeta(df[passed_check]))
+            # Loop over all responses and check if they pass the quality check
+            passed_check = [self._check_quality(r) for r in result.responses]
 
-                bad_message = ControlMessage()
-                bad_message.payload(MessageMeta(df[~passed_check]))
+            with message.payload().mutable_dataframe() as df:
+                df["emails"] = result.responses
 
-                # Set a new llm_engine task on the bad message
-                bad_message.add_task("llm_query",
-                                        LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict())
+                if (not all(passed_check)):
+                    # Need to separate into 2 messages
+                    good_message = ControlMessage()
+                    good_message.payload(MessageMeta(df[passed_check]))
 
-                return [good_message, bad_message]
+                    bad_message = ControlMessage()
+                    bad_message.payload(MessageMeta(df[~passed_check]))
 
-            else:
-                # Return a single message
-                return [message]
+                    # Set a new llm_engine task on the bad message
+                    bad_message.add_task("llm_query",
+                                         LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict())
 
-llm_service = NeMoLLMService(api_key="my_api_key", org_id="my_org_id")
+                    return [good_message, bad_message]
 
-engine = LLMEngine(llm_service=llm_service)
+                else:
+                    # Return a single message
+                    return [message]
 
-# Add a templating prompt generator to convert our payloads into prompts
-engine.add_prompt_generator(
-    TemplatePromptGenerator(
-        template=("Write a brief summary of the email below to use as a subject line for the email. "
-                    "Be as brief as possible.\n\n{body}")))
+    llm_service = NeMoLLMService()
 
-# Add our task handler
-engine.add_task_handler(QualityCheckTaskHandler())
+    engine = LLMEngine(llm_service=llm_service)
 
-# Create a control message with a single task which uses the LangChain agent executor
-message = ControlMessage()
+    # Add a templating prompt generator to convert our payloads into prompts
+    engine.add_prompt_generator(
+        TemplatePromptGenerator(
+            template=("Write a brief summary of the email below to use as a subject line for the email. "
+                      "Be as brief as possible.\n\n{body}")))
 
-message.add_task("llm_query", LLMDictTask(input_keys=["body"], model_name="gpt-43b-002").dict())
+    # Add our task handler
+    engine.add_task_handler(QualityCheckTaskHandler())
 
-payload = cudf.DataFrame({
-    "body": [
-        "Email body #1...",
-        "Email body #2...",
-    ],
-})
-message.payload(MessageMeta(payload))
+    # Create a control message with a single task which uses the LangChain agent executor
+    message = ControlMessage()
 
-# Finally, run the engine
-result = engine.run(message)
+    message.add_task("llm_engine",
+                     {
+                         "task_type": "template",
+                         "task_dict": LLMDictTask(input_keys=["body"], model_name="gpt-43b-002").dict(),
+                     })
 
-print(result)
+    payload = cudf.DataFrame({
+        "body": [
+            "Email body #1...",
+            "Email body #2...",
+        ],
+    })
+    message.payload(MessageMeta(payload))
+
+    # Finally, run the engine
+    result = engine.run(message)
+
+    print(result)
+
+
+if __name__ == "__main__":
+    run_langchain_example()
+    # run_spearphishing_example()

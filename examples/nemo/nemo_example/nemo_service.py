@@ -164,7 +164,7 @@ class NeMoClient:
         self._customization_id = customization_id
         self._infer_kwargs = infer_kwargs if infer_kwargs is not None else {}
 
-    def generate(self, prompt: str | list[str]):
+    async def generate(self, prompt: str | list[str]):
 
         convert_to_string = False
 
