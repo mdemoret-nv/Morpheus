@@ -9,9 +9,11 @@ from nemo_example.nemo_service import NeMoService
 
 import cudf
 
+from morpheus._lib.stages import LLMContext
 from morpheus._lib.stages import LLMEngine
 from morpheus._lib.stages import LLMGeneratePrompt
 from morpheus._lib.stages import LLMGenerateResult
+from morpheus._lib.stages import LLMNodeBase
 from morpheus._lib.stages import LLMPromptGenerator
 from morpheus._lib.stages import LLMService
 from morpheus._lib.stages import LLMTask
@@ -238,6 +240,145 @@ def run_spearphishing_example():
     print(result)
 
 
+async def run_spearphishing_example2():
+
+    class FunctionWrapperNode(LLMNodeBase):
+
+        def __init__(self, node_fn: typing.Callable) -> None:
+            super().__init__()
+
+            self._node_fn = node_fn
+
+        async def execute(self, context: LLMContext):
+
+            inputs = context.get_input()
+
+            result = await self._node_fn(**inputs)
+
+            context.set_output(result)
+
+    class TemplatePromptGenerator(LLMNodeBase):
+
+        def __init__(self, template: str) -> None:
+            super().__init__()
+
+            self._template = template
+
+        async def execute(self, context: LLMContext):
+
+            if (context.task().task_type != "template"):
+                return None
+
+            input_keys = context.task()["input_keys"]
+
+            with context.message().payload().mutable_dataframe() as df:
+                input_dict: list[dict] = df[input_keys].to_dict(orient="records")
+
+            template: str = context.task().get("template", self._template)
+
+            prompts = [template.format(**x) for x in input_dict]
+
+            context.set_output(prompts)
+
+    class LLMGenerateNode(LLMNodeBase):
+
+        def __init__(self, llm_service: LLMService) -> None:
+            super().__init__()
+
+            self._llm_service = llm_service
+
+        async def execute(self, context: LLMContext):
+
+            prompt = context.get_input()
+
+            result = await self._llm_service.generate(prompt)
+
+            context.set_output(result)
+
+    async def extract_subject(context: LLMContext):
+
+        llm_output = context.get_input()
+
+        # Remove leading "Subject: "
+        subjects = [x[9:] for x in llm_output]
+
+        context.set_output(subjects)
+
+    class QualityCheckTaskHandler(LLMNodeBase):
+
+        def _check_quality(self, response: str) -> bool:
+            # Some sort of check here
+            return True
+
+        asyncio.sleep(10)
+
+        async def execute(self, context: LLMContext):
+
+            subjects = context.get_input()
+
+            # Loop over all responses and check if they pass the quality check
+            passed_check = [self._check_quality(r) for r in subjects]
+
+            with message.payload().mutable_dataframe() as df:
+                df["emails"] = result.responses
+
+                if (not all(passed_check)):
+                    # Need to separate into 2 messages
+                    good_message = ControlMessage()
+                    good_message.payload(MessageMeta(df[passed_check]))
+
+                    bad_message = ControlMessage()
+                    bad_message.payload(MessageMeta(df[~passed_check]))
+
+                    # Set a new llm_engine task on the bad message
+                    bad_message.add_task("llm_query",
+                                         LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict())
+
+                    return [good_message, bad_message]
+
+                else:
+                    # Return a single message
+                    return [message]
+
+    llm_service = NeMoLLMService()
+
+    engine = LLMEngine()
+
+    engine.add_node(name="template",
+                    input_names=[],
+                    node=TemplatePromptGenerator(
+                        ("Write a brief summary of the email below to use as a subject line for the email. "
+                         "Be as brief as possible.\n\n{body}")))
+    engine.add_node(name="nemo", input_names=["template"], node=LLMGenerateNode(llm_service=llm_service))
+    engine.add_node(name="extract_subject", input_names=["nemo"], node=FunctionWrapperNode(extract_subject))
+    engine.add_node(name="quality_check", input_names=["extract_subject"], node=QualityCheckTaskHandler())
+
+    # engine.add_task_handler(QualityCheckTaskHandler())
+
+    # Create a control message with a single task which uses the LangChain agent executor
+    message = ControlMessage()
+
+    message.add_task("llm_engine",
+                     {
+                         "task_type": "template",
+                         "task_dict": LLMDictTask(input_keys=["body"], model_name="gpt-43b-002").dict(),
+                     })
+
+    payload = cudf.DataFrame({
+        "body": [
+            "Email body #1...",
+            "Email body #2...",
+        ],
+    })
+    message.payload(MessageMeta(payload))
+
+    # Finally, run the engine
+    result = await engine.arun(message)
+
+    print(result)
+
+
 if __name__ == "__main__":
-    run_langchain_example()
-    # run_spearphishing_example()
+    # run_langchain_example()
+
+    asyncio.run(run_spearphishing_example2())

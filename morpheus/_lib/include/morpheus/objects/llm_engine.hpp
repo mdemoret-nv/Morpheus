@@ -19,6 +19,8 @@
 
 #include "morpheus/messages/control.hpp"
 
+#include <mrc/types.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include <pybind11/pytypes.h>
 
 #include <cstddef>
@@ -58,6 +60,203 @@ struct LLMTask
     }
 
     nlohmann::json task_dict;
+};
+
+struct LLMContextState
+{
+    LLMTask task;
+    std::shared_ptr<ControlMessage> message;
+    nlohmann::json outputs;
+};
+
+class LLMContext : public std::enable_shared_from_this<LLMContext>
+{
+  public:
+    LLMContext()
+    {
+        m_outputs_future = m_outputs_promise.get_future().share();
+    }
+
+    LLMContext(LLMTask task, std::shared_ptr<ControlMessage> message) : LLMContext()
+    {
+        m_state->task    = std::move(task);
+        m_state->message = std::move(message);
+    }
+
+    LLMContext(std::shared_ptr<const LLMContext> parent, std::string name, std::vector<std::string> input_names) :
+      LLMContext()
+    {
+        this->m_parent      = parent;
+        this->m_name        = std::move(name);
+        this->m_input_names = std::move(input_names);
+        this->m_state       = parent->m_state;
+    }
+
+    const std::string& name() const
+    {
+        return m_name;
+    }
+
+    const std::vector<std::string>& input_names() const
+    {
+        return m_input_names;
+    }
+
+    const LLMTask& task() const
+    {
+        return m_state->task;
+    }
+
+    std::shared_ptr<ControlMessage> message() const
+    {
+        return m_state->message;
+    }
+
+    std::string full_name() const
+    {
+        std::string full_name = m_name;
+
+        // Determine the full name
+        if (m_parent)
+        {
+            full_name = m_parent->m_name + "." + full_name;
+        }
+
+        return full_name;
+    }
+
+    std::shared_ptr<LLMContext> push(std::string name, std::vector<std::string> input_names) const
+    {
+        return std::make_shared<LLMContext>(this->shared_from_this(), std::move(name), std::move(input_names));
+    }
+
+    nlohmann::json::const_reference get_input() const
+    {
+        // Get the full name of the input
+        std::string full_name = this->full_name();
+
+        return m_state->outputs[full_name];
+    }
+
+    nlohmann::json::const_reference get_input(const std::string& input_name) const
+    {
+        // Get the full name of the input
+        std::string full_name = this->full_name() + "." + input_name;
+
+        return m_state->outputs[full_name];
+    }
+
+    void set_output(nlohmann::json outputs)
+    {
+        std::string full_name = this->full_name();
+
+        m_state->outputs[full_name] = std::move(outputs);
+
+        // Notify that the outputs are complete
+        this->outputs_complete();
+    }
+
+    void set_output(std::string output_name, nlohmann::json outputs)
+    {
+        std::string full_name = this->full_name() + "." + output_name;
+
+        m_state->outputs[full_name] = std::move(outputs);
+    }
+
+    void outputs_complete()
+    {
+        m_outputs_promise.set_value();
+    }
+
+    nlohmann::json::const_reference get_outputs() const
+    {
+        // Wait for the outputs to be available
+        m_outputs_future.wait();
+
+        return m_state->outputs[this->full_name()];
+    }
+
+  private:
+    std::shared_ptr<const LLMContext> m_parent{nullptr};
+    std::string m_name;
+    std::vector<std::string> m_input_names;
+
+    std::shared_ptr<LLMContextState> m_state;
+
+    mrc::Promise<void> m_outputs_promise;
+    mrc::SharedFuture<void> m_outputs_future;
+};
+
+class LLMNodeBase
+{
+  public:
+    virtual void execute(std::shared_ptr<LLMContext> context) = 0;
+};
+
+class LLMNodeRunner
+{
+  public:
+    LLMNodeRunner(std::string name, std::vector<std::string> input_names, std::shared_ptr<LLMNodeBase> node) :
+      m_name(std::move(name)),
+      m_input_names(std::move(input_names)),
+      m_node(std::move(node))
+    {}
+
+    virtual void execute(std::shared_ptr<LLMContext> context)
+    {
+        // Create a new context
+        auto child_context = context->push(m_name, m_input_names);
+
+        // Also need error handling here
+        m_node->execute(context);
+    }
+
+    const std::string& name() const
+    {
+        return m_name;
+    }
+
+    const std::vector<std::string>& input_names() const
+    {
+        return m_input_names;
+    }
+
+  private:
+    std::string m_name;
+    std::vector<std::string> m_input_names;
+    std::shared_ptr<LLMNodeBase> m_node;
+};
+
+class LLMNode : public LLMNodeBase
+{
+  public:
+    virtual std::shared_ptr<LLMNodeRunner> add_node(std::string name,
+                                                    std::vector<std::string> input_names,
+                                                    std::shared_ptr<LLMNodeBase> node)
+    {
+        auto node_runner = std::make_shared<LLMNodeRunner>(std::move(name), std::move(input_names), std::move(node));
+
+        // Perform checks that the existing nodes meet the requirements
+
+        m_children.push_back(node_runner);
+
+        return node_runner;
+    }
+
+    void execute(std::shared_ptr<LLMContext> context) override
+    {
+        for (auto& child : m_children)
+        {
+            // Run the child node
+            child->execute(context);
+
+            // Wait for the child node outputs (This will yield if not already available)
+            context->get_outputs();
+        }
+    }
+
+  private:
+    std::vector<std::shared_ptr<LLMNodeRunner>> m_children;
 };
 
 struct LLMGeneratePrompt
@@ -109,17 +308,12 @@ class LLMTaskHandler
         const LLMGenerateResult& responses) = 0;
 };
 
-class LLMEngine
+class LLMEngine : public LLMNode
 {
   public:
     using prompt_t = std::variant<LLMGeneratePrompt, LLMGenerateResult>;
 
-    LLMEngine(std::shared_ptr<LLMService> llm_service) : m_llm_service(std::move(llm_service)) {}
-
-    std::shared_ptr<LLMService> get_llm_service() const
-    {
-        return m_llm_service;
-    }
+    LLMEngine() = default;
 
     virtual void add_prompt_generator(std::shared_ptr<LLMPromptGenerator> prompt_generator)
     {
@@ -152,21 +346,14 @@ class LLMEngine
             // Temp create an instance of LLMTask for type safety
             LLMTask tmp_task(current_task["task_type"].get<std::string>(), current_task.at("task_dict"));
 
-            auto prompts = this->generate_prompts(tmp_task, input_message);
-            LLMGenerateResult results;
+            // Set the name, task, control_message and inputs on the context
+            auto context = std::make_shared<LLMContext>(tmp_task, input_message);
 
-            if (std::holds_alternative<LLMGeneratePrompt>(prompts))
-            {
-                auto gen_prompt = std::get<LLMGeneratePrompt>(prompts);
+            // Call the base node
+            this->execute(context);
 
-                results = this->execute_model(gen_prompt);
-            }
-            else
-            {
-                results = std::get<LLMGenerateResult>(prompts);
-            }
-
-            auto tasks = this->handle_tasks(tmp_task, input_message, results);
+            // Pass the outputs into the task generators
+            auto tasks = this->handle_tasks(context);
 
             output_messages.insert(output_messages.end(), tasks.begin(), tasks.end());
         }
@@ -190,29 +377,24 @@ class LLMEngine
         throw std::runtime_error("No prompt generator was able to handle the input message");
     }
 
-    LLMGenerateResult execute_model(const LLMGeneratePrompt& prompt)
+    std::vector<std::shared_ptr<ControlMessage>> handle_tasks(std::shared_ptr<LLMContext> context)
     {
-        return m_llm_service->generate(prompt);
-    }
+        // Wait for the base node outputs (This will yield if not already available)
+        auto outputs = context->get_outputs();
 
-    std::vector<std::shared_ptr<ControlMessage>> handle_tasks(const LLMTask& input_task,
-                                                              std::shared_ptr<ControlMessage> input_message,
-                                                              const LLMGenerateResult& results)
-    {
-        for (auto& task_handler : m_task_handlers)
-        {
-            auto new_tasks = task_handler->try_handle(*this, input_task, input_message, results);
+        // for (auto& task_handler : m_task_handlers)
+        // {
+        //     auto new_tasks = task_handler->try_handle(*this, input_task, input_message, results);
 
-            if (new_tasks.has_value())
-            {
-                return new_tasks.value();
-            }
-        }
+        //     if (new_tasks.has_value())
+        //     {
+        //         return new_tasks.value();
+        //     }
+        // }
 
         throw std::runtime_error("No task handler was able to handle the input message and responses generated");
     }
 
-    std::shared_ptr<LLMService> m_llm_service;
     std::vector<std::shared_ptr<LLMPromptGenerator>> m_prompt_generators;
     std::vector<std::shared_ptr<LLMTaskHandler>> m_task_handlers;
 };

@@ -98,6 +98,9 @@ target_include_directories(morpheus
     $<INSTALL_INTERFACE:include>
 )
 
+# In debug mode, dont allow missing symbols
+target_link_options(morpheus PUBLIC "$<$<CONFIG:Debug>:-Wl,--no-allow-shlib-undefined>")
+
 # Generates an include file for specifying external linkage since everything is hidden by default
 generate_export_header(morpheus
   NO_EXPORT_MACRO_NAME
