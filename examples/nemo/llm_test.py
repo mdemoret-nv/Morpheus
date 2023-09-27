@@ -1,25 +1,61 @@
+# Speed up the import of cudf. From https://github.com/nv-morpheus/Morpheus/issues/1101
+from ctypes import byref
+from ctypes import c_int
+
+from numba import cuda
+
+dv = c_int(0)
+cuda.cudadrv.driver.driver.cuDriverGetVersion(byref(dv))
+drv_major = dv.value // 1000
+drv_minor = (dv.value - (drv_major * 1000)) // 10
+run_major, run_minor = cuda.runtime.get_version()
+print(f'{drv_major} {drv_minor} {run_major} {run_minor}')
+
+import os
+
+os.environ["PTXCOMPILER_CHECK_NUMBA_CODEGEN_PATCH_NEEDED"] = "0"
+os.environ["PTXCOMPILER_KNOWN_DRIVER_VERSION"] = f"{drv_major}.{drv_minor}"
+os.environ["PTXCOMPILER_KNOWN_RUNTIME_VERSION"] = f"{run_major}.{run_minor}"
+
+import time
+
+start_time = time.time()
+
+print(f"Starting at {start_time}")
+
 import asyncio
 import typing
 
-from langchain.agents import AgentExecutor
-from langchain.agents import AgentType
-from langchain.agents import initialize_agent
-from nemo_example.llm_engine import LLMDictTask
+print(f"Import 1 took: t {time.time() - start_time}")
+
+# from langchain.agents import AgentExecutor
+# from langchain.agents import AgentType
+# from langchain.agents import initialize_agent
+# from nemo_example.llm_engine import LLMDictTask
 from nemo_example.nemo_service import NeMoService
 
-import cudf
+print(f"Import 2 took: t {time.time() - start_time}")
 
-from morpheus._lib.stages import LLMContext
-from morpheus._lib.stages import LLMEngine
-from morpheus._lib.stages import LLMGeneratePrompt
-from morpheus._lib.stages import LLMGenerateResult
-from morpheus._lib.stages import LLMNodeBase
-from morpheus._lib.stages import LLMPromptGenerator
-from morpheus._lib.stages import LLMService
-from morpheus._lib.stages import LLMTask
-from morpheus._lib.stages import LLMTaskHandler
-from morpheus.messages import ControlMessage
-from morpheus.messages import MessageMeta
+import morpheus._lib
+
+print(f"Import 3a took: t {time.time() - start_time}")
+
+# from morpheus._lib.llm import LLMNodeBase
+# from morpheus._lib.llm import LLMPromptGenerator
+# from morpheus._lib.llm import LLMContext
+# from morpheus._lib.llm import LLMEngine
+from morpheus._lib.llm import LLMGeneratePrompt
+from morpheus._lib.llm import LLMGenerateResult
+from morpheus._lib.llm import LLMService
+
+print(f"Import 3 took: t {time.time() - start_time}")
+
+# import cudf
+
+# from morpheus._lib.llm import LLMTask
+# from morpheus._lib.llm import LLMTaskHandler
+# from morpheus.messages import ControlMessage
+# from morpheus.messages import MessageMeta
 
 
 class NeMoLLMService(LLMService):
@@ -43,6 +79,20 @@ class NeMoLLMService(LLMService):
 
 
 def run_langchain_example():
+
+    from langchain.agents import AgentExecutor
+    from langchain.agents import AgentType
+    from langchain.agents import initialize_agent
+    from nemo_example.common import LLMDictTask
+
+    import cudf
+
+    from morpheus._lib.llm import LLMEngine
+    from morpheus._lib.llm import LLMPromptGenerator
+    from morpheus._lib.llm import LLMTask
+    from morpheus._lib.llm import LLMTaskHandler
+    from morpheus.messages import ControlMessage
+    from morpheus.messages import MessageMeta
 
     class MyPromptGeneratorAsync(LLMPromptGenerator):
 
@@ -145,6 +195,17 @@ def run_langchain_example():
 
 def run_spearphishing_example():
 
+    from nemo_example.common import LLMDictTask
+
+    import cudf
+
+    from morpheus._lib.llm import LLMEngine
+    from morpheus._lib.llm import LLMPromptGenerator
+    from morpheus._lib.llm import LLMTask
+    from morpheus._lib.llm import LLMTaskHandler
+    from morpheus.messages import ControlMessage
+    from morpheus.messages import MessageMeta
+
     class TemplatePromptGenerator(LLMPromptGenerator):
 
         def __init__(self, template: str) -> None:
@@ -242,6 +303,28 @@ def run_spearphishing_example():
 
 async def run_spearphishing_example2():
 
+    from nemo_example.common import LLMDictTask
+
+    print(f"Import 4a took: t {time.time() - start_time}")
+
+    import cudf
+
+    print(f"Import 4b took: t {time.time() - start_time}")
+
+    from morpheus._lib.llm import LLMContext
+    from morpheus._lib.llm import LLMEngine
+    from morpheus._lib.llm import LLMNodeBase
+
+    print(f"Import 4c took: t {time.time() - start_time}")
+
+    from morpheus.messages import ControlMessage
+
+    print(f"Import 4d took: t {time.time() - start_time}")
+
+    from morpheus.messages import MessageMeta
+
+    print(f"Import 4 took: t {time.time() - start_time}")
+
     class FunctionWrapperNode(LLMNodeBase):
 
         def __init__(self, node_fn: typing.Callable) -> None:
@@ -310,8 +393,6 @@ async def run_spearphishing_example2():
             # Some sort of check here
             return True
 
-        asyncio.sleep(10)
-
         async def execute(self, context: LLMContext):
 
             subjects = context.get_input()
@@ -378,7 +459,85 @@ async def run_spearphishing_example2():
     print(result)
 
 
+from morpheus._lib.llm import LLMEngine
+
+
+async def inner_async_fn():
+
+    await asyncio.sleep(1)
+    return 5
+
+
+async def run_engine():
+    engine = LLMEngine()
+
+    result = await engine.run_async(inner_async_fn())
+
+    print(result)
+
+
+asyncio.run(run_engine())
+
+print("Done")
+
+
+async def test_async():
+
+    from morpheus._lib.llm import LLMEngine
+
+    engine = LLMEngine()
+
+    async def inner_async_fn():
+
+        print("Sleeping from python...")
+
+        await asyncio.sleep(1)
+
+        print("Sleeping from python... Done")
+
+        return 5
+
+    async def inner_async_fn_with_ex():
+
+        print("Sleeping from python...")
+
+        await asyncio.sleep(1)
+
+        print("Sleeping from python... Done")
+
+        raise RuntimeError("Inside inner_async_fn_with_ex")
+
+    async def inner_async_fn_with_arg(fn_to_call):
+
+        print("Sleeping from python...")
+
+        await asyncio.sleep(1)
+
+        print("Sleeping from python... Done")
+
+        print("Calling function argument")
+
+        return await fn_to_call(5)
+
+    result = await engine.arun2(inner_async_fn)
+
+    print(result)
+
+    # Run with an exception
+    try:
+        result = await engine.arun2(inner_async_fn_with_ex)
+
+        print(result)
+
+    except RuntimeError as ex:
+        print(f"Exception returned: {ex}")
+
+    result = await engine.arun3(inner_async_fn_with_arg)
+
+    print(result)
+
+
 if __name__ == "__main__":
     # run_langchain_example()
 
-    asyncio.run(run_spearphishing_example2())
+    asyncio.run(test_async())

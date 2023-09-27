@@ -11,7 +11,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
+
+start_time = time.time()
+
+print(f"morpheus._lib Starting at {start_time}")
+
 from . import common
+
+print(f"morpheus._lib.common took: t {time.time() - start_time}")
+
 from . import messages
+
+print(f"morpheus._lib.messages took: t {time.time() - start_time}")
+
 from . import modules
+
+print(f"morpheus._lib.modules took: t {time.time() - start_time}")
+
 from . import stages
+
+print(f"morpheus._lib.stages took: t {time.time() - start_time}")
