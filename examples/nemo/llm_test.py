@@ -305,25 +305,14 @@ async def run_spearphishing_example2():
 
     from nemo_example.common import LLMDictTask
 
-    print(f"Import 4a took: t {time.time() - start_time}")
-
     import cudf
-
-    print(f"Import 4b took: t {time.time() - start_time}")
 
     from morpheus._lib.llm import LLMContext
     from morpheus._lib.llm import LLMEngine
     from morpheus._lib.llm import LLMNodeBase
-
-    print(f"Import 4c took: t {time.time() - start_time}")
-
+    from morpheus._lib.llm import LLMTaskHandler
     from morpheus.messages import ControlMessage
-
-    print(f"Import 4d took: t {time.time() - start_time}")
-
     from morpheus.messages import MessageMeta
-
-    print(f"Import 4 took: t {time.time() - start_time}")
 
     class FunctionWrapperNode(LLMNodeBase):
 
@@ -336,9 +325,11 @@ async def run_spearphishing_example2():
 
             inputs = context.get_input()
 
-            result = await self._node_fn(**inputs)
+            result = await self._node_fn(inputs)
 
             context.set_output(result)
+
+            return context
 
     class TemplatePromptGenerator(LLMNodeBase):
 
@@ -363,6 +354,8 @@ async def run_spearphishing_example2():
 
             context.set_output(prompts)
 
+            return context
+
     class LLMGenerateNode(LLMNodeBase):
 
         def __init__(self, llm_service: LLMService) -> None:
@@ -372,36 +365,42 @@ async def run_spearphishing_example2():
 
         async def execute(self, context: LLMContext):
 
-            prompt = context.get_input()
+            prompts = context.get_input()
 
-            result = await self._llm_service.generate(prompt)
+            gen_prompt = LLMGeneratePrompt(context.task().get("model_name", "gpt-43b-002"), {}, prompts)
 
-            context.set_output(result)
+            result = await self._llm_service.generate(gen_prompt)
 
-    async def extract_subject(context: LLMContext):
+            context.set_output(result.responses)
 
-        llm_output = context.get_input()
+            return context
+
+    async def extract_subject(llm_output: list[str]):
 
         # Remove leading "Subject: "
         subjects = [x[9:] for x in llm_output]
 
-        context.set_output(subjects)
+        return subjects
 
-    class QualityCheckTaskHandler(LLMNodeBase):
+    async def quality_check(subjects: list[str]):
 
         def _check_quality(self, response: str) -> bool:
             # Some sort of check here
             return True
 
-        async def execute(self, context: LLMContext):
+        # Some sort of check here
+        passed_check = [_check_quality(r) for r in subjects]
 
-            subjects = context.get_input()
+        return passed_check
 
-            # Loop over all responses and check if they pass the quality check
-            passed_check = [self._check_quality(r) for r in subjects]
+    class QualityCheckTaskHandler(LLMTaskHandler):
+
+        async def try_handle(self, context: LLMContext):
+
+            all_input = context.get_input()
 
             with message.payload().mutable_dataframe() as df:
-                df["emails"] = result.responses
+                df["subjects"] = result.responses
 
                 if (not all(passed_check)):
                     # Need to separate into 2 messages
@@ -430,11 +429,11 @@ async def run_spearphishing_example2():
                     node=TemplatePromptGenerator(
                         ("Write a brief summary of the email below to use as a subject line for the email. "
                          "Be as brief as possible.\n\n{body}")))
-    engine.add_node(name="nemo", input_names=["template"], node=LLMGenerateNode(llm_service=llm_service))
-    engine.add_node(name="extract_subject", input_names=["nemo"], node=FunctionWrapperNode(extract_subject))
-    engine.add_node(name="quality_check", input_names=["extract_subject"], node=QualityCheckTaskHandler())
+    engine.add_node(name="nemo", input_names=["/template"], node=LLMGenerateNode(llm_service=llm_service))
+    engine.add_node(name="extract_subject", input_names=["/nemo"], node=FunctionWrapperNode(extract_subject))
+    engine.add_node(name="quality_check", input_names=["/extract_subject"], node=FunctionWrapperNode(quality_check))
 
-    # engine.add_task_handler(QualityCheckTaskHandler())
+    engine.add_task_handler(QualityCheckTaskHandler())
 
     # Create a control message with a single task which uses the LangChain agent executor
     message = ControlMessage()
@@ -454,31 +453,9 @@ async def run_spearphishing_example2():
     message.payload(MessageMeta(payload))
 
     # Finally, run the engine
-    result = await engine.arun(message)
+    result = await engine.run(message)
 
     print(result)
-
-
-from morpheus._lib.llm import LLMEngine
-
-
-async def inner_async_fn():
-
-    await asyncio.sleep(1)
-    return 5
-
-
-async def run_engine():
-    engine = LLMEngine()
-
-    result = await engine.run_async(inner_async_fn())
-
-    print(result)
-
-
-asyncio.run(run_engine())
-
-print("Done")
 
 
 async def test_async():
@@ -539,5 +516,5 @@ async def test_async():
 
 if __name__ == "__main__":
     # run_langchain_example()
-
-    asyncio.run(test_async())
+    asyncio.run(run_spearphishing_example2())
+    # asyncio.run(test_async())

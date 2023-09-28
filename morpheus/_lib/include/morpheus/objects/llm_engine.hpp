@@ -19,7 +19,9 @@
 
 #include "morpheus/messages/control.hpp"
 
+#include <mrc/coroutines/task.hpp>
 #include <mrc/types.hpp>
+#include <nlohmann/json.hpp>
 #include <nlohmann/json_fwd.hpp>
 #include <pybind11/pytypes.h>
 
@@ -29,6 +31,11 @@
 #include <string>
 #include <utility>
 #include <variant>
+
+namespace morpheus {
+template <typename T>
+using Task = mrc::coroutines::Task<T>;
+}
 
 namespace morpheus::llm {
 
@@ -72,7 +79,7 @@ struct LLMContextState
 class LLMContext : public std::enable_shared_from_this<LLMContext>
 {
   public:
-    LLMContext()
+    LLMContext() : m_state(std::make_shared<LLMContextState>())
     {
         m_outputs_future = m_outputs_promise.get_future().share();
     }
@@ -117,7 +124,7 @@ class LLMContext : public std::enable_shared_from_this<LLMContext>
         std::string full_name = m_name;
 
         // Determine the full name
-        if (m_parent)
+        if (m_parent && !m_parent->m_name.empty())
         {
             full_name = m_parent->m_name + "." + full_name;
         }
@@ -130,12 +137,21 @@ class LLMContext : public std::enable_shared_from_this<LLMContext>
         return std::make_shared<LLMContext>(this->shared_from_this(), std::move(name), std::move(input_names));
     }
 
-    nlohmann::json::const_reference get_input() const
+    nlohmann::json get_input() const
     {
-        // Get the full name of the input
-        std::string full_name = this->full_name();
+        if (m_input_names.size() == 1)
+        {
+            return m_state->outputs[nlohmann::json::json_pointer(m_input_names[0])];
+        }
 
-        return m_state->outputs[full_name];
+        nlohmann::json inputs;
+
+        for (const auto& input_name : m_input_names)
+        {
+            inputs[input_name] = m_state->outputs[nlohmann::json::json_pointer(input_name)];
+        }
+
+        return inputs;
     }
 
     nlohmann::json::const_reference get_input(const std::string& input_name) const
@@ -190,7 +206,7 @@ class LLMContext : public std::enable_shared_from_this<LLMContext>
 class LLMNodeBase
 {
   public:
-    virtual void execute(std::shared_ptr<LLMContext> context) = 0;
+    virtual Task<std::shared_ptr<LLMContext>> execute(std::shared_ptr<LLMContext> context) = 0;
 };
 
 class LLMNodeRunner
@@ -202,13 +218,13 @@ class LLMNodeRunner
       m_node(std::move(node))
     {}
 
-    virtual void execute(std::shared_ptr<LLMContext> context)
+    virtual Task<std::shared_ptr<LLMContext>> execute(std::shared_ptr<LLMContext> context)
     {
         // Create a new context
         auto child_context = context->push(m_name, m_input_names);
 
         // Also need error handling here
-        m_node->execute(context);
+        co_return co_await m_node->execute(child_context);
     }
 
     const std::string& name() const
@@ -243,16 +259,18 @@ class LLMNode : public LLMNodeBase
         return node_runner;
     }
 
-    void execute(std::shared_ptr<LLMContext> context) override
+    Task<std::shared_ptr<LLMContext>> execute(std::shared_ptr<LLMContext> context) override
     {
         for (auto& child : m_children)
         {
             // Run the child node
-            child->execute(context);
+            co_await child->execute(context);
 
             // Wait for the child node outputs (This will yield if not already available)
-            context->get_outputs();
+            // context->get_outputs();
         }
+
+        co_return context;
     }
 
   private:
@@ -325,7 +343,7 @@ class LLMEngine : public LLMNode
         m_task_handlers.push_back(task_handler);
     }
 
-    virtual std::vector<std::shared_ptr<ControlMessage>> run(std::shared_ptr<ControlMessage> input_message)
+    virtual Task<std::vector<std::shared_ptr<ControlMessage>>> run(std::shared_ptr<ControlMessage> input_message)
     {
         if (!input_message)
         {
@@ -350,7 +368,7 @@ class LLMEngine : public LLMNode
             auto context = std::make_shared<LLMContext>(tmp_task, input_message);
 
             // Call the base node
-            this->execute(context);
+            co_await this->execute(context);
 
             // Pass the outputs into the task generators
             auto tasks = this->handle_tasks(context);
@@ -358,7 +376,7 @@ class LLMEngine : public LLMNode
             output_messages.insert(output_messages.end(), tasks.begin(), tasks.end());
         }
 
-        return output_messages;
+        co_return output_messages;
     }
 
   private:

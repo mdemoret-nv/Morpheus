@@ -47,6 +47,7 @@
 #include <map>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -155,6 +156,7 @@ class PyTaskAwaitable
             // Always suspend
             return false;
         }
+
         void await_suspend(std::coroutine_handle<> caller) noexcept
         {
             pybind11::gil_scoped_acquire gil;
@@ -181,6 +183,7 @@ class PyTaskAwaitable
 
             m_parent.m_task.attr("add_done_callback")(done_callback);
         }
+
         mrc::pymrc::PyHolder await_resume()
         {
             VLOG(10) << "In await_resume";
@@ -361,7 +364,7 @@ class PyLLMPromptGenerator : public llm::LLMPromptGenerator
         pybind11 ::gil_scoped_acquire gil;
 
         pybind11 ::function override =
-            pybind11 ::get_override(static_cast<const llm ::LLMPromptGenerator*>(this), "try_handle");
+            pybind11 ::get_override(static_cast<const llm::LLMPromptGenerator*>(this), "try_handle");
 
         if (!override)
         {
@@ -529,59 +532,57 @@ class PyLLMNodeBase : public BaseT
     //     return llm::LLMNode::add_node(name, input_names, node);
     // }
 
-    void execute(std::shared_ptr<llm::LLMContext> context) override
+    Task<std::shared_ptr<llm::LLMContext>> execute(std::shared_ptr<llm::LLMContext> context) override
     {
-        pybind11 ::gil_scoped_acquire gil;
+        using return_t = std::shared_ptr<llm::LLMContext>;
 
-        pybind11 ::function override = pybind11 ::get_override(static_cast<const BaseT*>(this), "execute");
+        pybind11::gil_scoped_acquire gil;
 
-        if (!override)
+        pybind11::function override = pybind11::get_override(static_cast<const BaseT*>(this), "execute");
+
+        if (override)
         {
-            // Problem
-            pybind11 ::pybind11_fail(
+            auto override_coro = override(context);
+
+            // Now determine if the override result is a coroutine or not
+            if (!py::module::import("asyncio").attr("iscoroutine")(override_coro).cast<bool>())
+            {
+                throw std::runtime_error("Must return a coroutine");
+            }
+
+            auto override_task = py::module::import("asyncio").attr("create_task")(override_coro);
+
+            mrc::pymrc::PyHolder override_result;
+            {
+                // Release the GIL before awaiting
+                pybind11::gil_scoped_release nogil;
+
+                override_result = co_await PyTaskAwaitable(std::move(override_task));
+            }
+
+            // Now cast back to the C++ type
+            if (pybind11 ::detail ::cast_is_temporary_value_reference<return_t>::value)
+            {
+                static pybind11 ::detail ::override_caster_t<return_t> caster;
+                co_return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
+            }
+            co_return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
+        }
+
+        if constexpr (std::is_same_v<BaseT, llm::LLMNodeBase>)
+        {
+            // Cant call the base class implementation on abstract class
+            pybind11::pybind11_fail(
                 "Tried to call pure virtual function \""
                 "llm::LLMNodeBase"
                 "::"
                 "execute"
                 "\"");
         }
-
-        auto override_result = override(context);
-
-        // Now determine if the override result is a coroutine or not
-        if (py::module::import("asyncio").attr("iscoroutine")(override_result).cast<bool>())
-        {
-            py::print("Returned a coroutine");
-
-            auto loop = py::module::import("asyncio").attr("get_running_loop")();
-
-            // Need to schedule the result to run on the loop
-            auto future = py::module::import("asyncio").attr("run_coroutine_threadsafe")(override_result, loop);
-
-            // We are a dask future. Quickly check if its done, then release
-            while (!future.attr("done")().cast<bool>())
-            {
-                // Release the GIL and wait for it to be done
-                py::gil_scoped_release nogil;
-
-                boost::this_fiber::yield();
-            }
-
-            // // Completed, move into the returned object
-            // override_result = future.attr("result")();
-        }
         else
         {
-            py::print("Did not return a coroutine");
+            co_return co_await BaseT::execute(context);
         }
-
-        // // Now cast back to the C++ type
-        // if (pybind11 ::detail ::cast_is_temporary_value_reference<return_t>::value)
-        // {
-        //     static pybind11 ::detail ::override_caster_t<return_t> caster;
-        //     return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
-        // }
-        // return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
     }
 
   private:
@@ -926,6 +927,8 @@ PYBIND11_MODULE(llm, _module)
         .def_readwrite("responses", &llm::LLMGenerateResult::responses);
 
     py::class_<llm::LLMContext, std::shared_ptr<llm::LLMContext>>(_module, "LLMContext")
+        .def_property_readonly("name", [](llm::LLMContext& self) { return self.name(); })
+        .def_property_readonly("full_name", [](llm::LLMContext& self) { return self.full_name(); })
         .def("task", [](llm::LLMContext& self) { return self.task(); })
         .def("message", [](llm::LLMContext& self) { return self.message(); })
         .def("get_input",
@@ -933,24 +936,51 @@ PYBIND11_MODULE(llm, _module)
                  // Convert the return value
                  return mrc::pymrc::cast_from_json(self.get_input());
              })
-        .def("set_output", [](llm::LLMContext& self, py::dict value) {
+        .def("set_output", [](llm::LLMContext& self, py::object value) {
             // Convert and pass to the base
             self.set_output(mrc::pymrc::cast_from_pyobject(value));
         });
 
     py::class_<llm::LLMNodeBase, PyLLMNodeBase<>, std::shared_ptr<llm::LLMNodeBase>>(_module, "LLMNodeBase")
         .def(py::init_alias<>())
-        .def("execute", &llm::LLMNodeBase::execute);
+        .def("execute", [](std::shared_ptr<llm::LLMNodeBase> self, std::shared_ptr<llm::LLMContext> context) {
+            auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
+                auto result = co_await self->execute(context);
+
+                // Convert the output to a python object
+                co_return py::cast(result);
+            };
+
+            return std::make_shared<CoroAwaitable>(convert(context));
+        });
 
     py::class_<llm::LLMNodeRunner, std::shared_ptr<llm::LLMNodeRunner>>(_module, "LLMNodeRunner")
         .def_property_readonly("name", &llm::LLMNodeRunner::name)
-        .def_property_readonly("input_names", &llm::LLMNodeRunner::input_names)
-        .def("execute", &llm::LLMNodeRunner::execute);
+        .def_property_readonly("input_names", &llm::LLMNodeRunner::input_names);
+    // .def("execute", [](std::shared_ptr<llm::LLMNodeRunner> self, std::shared_ptr<llm::LLMContext> context) {
+    //     auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
+    //         auto result = co_await self->execute(context);
+
+    //         // Convert the output to a python object
+    //         co_return py::cast(result);
+    //     };
+
+    //     return std::make_shared<CoroAwaitable>(std::move(convert));
+    // });
 
     py::class_<llm::LLMNode, llm::LLMNodeBase, PyLLMNode<>, std::shared_ptr<llm::LLMNode>>(_module, "LLMNode")
         .def(py::init_alias<>())
-        .def("add_node", &llm::LLMNode::add_node)
-        .def("execute", &llm::LLMNode::execute);
+        .def("add_node", &llm::LLMNode::add_node, py::arg("name"), py::arg("input_names"), py::arg("node"));
+    // .def("execute", [](std::shared_ptr<llm::LLMNode> self, std::shared_ptr<llm::LLMContext> context) {
+    //     auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
+    //         auto result = co_await self->execute(context);
+
+    //         // Convert the output to a python object
+    //         co_return py::cast(result);
+    //     };
+
+    //     return std::make_shared<CoroAwaitable>(std::move(convert));
+    // });
 
     auto LLMService =
         py::class_<llm::LLMService, PyLLMService, std::shared_ptr<llm::LLMService>>(_module, "LLMService");
@@ -962,7 +992,8 @@ PYBIND11_MODULE(llm, _module)
     auto LLMTaskHandler = py::class_<llm::LLMTaskHandler, PyLLMTaskHandler, std::shared_ptr<llm::LLMTaskHandler>>(
         _module, "LLMTaskHandler");
 
-    auto LLMEngine = py::class_<llm::LLMEngine, PyLLMEngine, std::shared_ptr<llm::LLMEngine>>(_module, "LLMEngine");
+    auto LLMEngine =
+        py::class_<llm::LLMEngine, llm::LLMNode, PyLLMEngine, std::shared_ptr<llm::LLMEngine>>(_module, "LLMEngine");
 
     LLMService.def(py::init<>()).def("generate", &llm::LLMService::generate);
 
@@ -977,8 +1008,25 @@ PYBIND11_MODULE(llm, _module)
         // }))
         .def("add_prompt_generator", &llm::LLMEngine::add_prompt_generator, py::arg("prompt_generator"))
         .def("add_task_handler", &llm::LLMEngine::add_task_handler, py::arg("task_handler"))
-        .def("add_node", &llm::LLMEngine::add_node, py::arg("name"), py::arg("input_names"), py::arg("node"))
-        .def("run", &llm::LLMEngine::run, py::arg("input_message"))
+        // .def("add_node", &llm::LLMEngine::add_node, py::arg("name"), py::arg("input_names"), py::arg("node"))
+        .def(
+            "run",
+            [](std::shared_ptr<llm::LLMEngine> self, std::shared_ptr<ControlMessage> message) {
+                auto convert = [](std::shared_ptr<llm::LLMEngine> self,
+                                  std::shared_ptr<ControlMessage> message) -> Task<mrc::pymrc::PyHolder> {
+                    VLOG(10) << "Running LLMEngine::run";
+
+                    auto result = co_await self->run(message);
+
+                    py::gil_scoped_acquire gil;
+
+                    // Convert the output to a python object
+                    co_return py::cast(message);
+                };
+
+                return std::make_shared<CoroAwaitable>(convert(self, message));
+            },
+            py::arg("input_message"))
         // .def("arun",
         //      [](llm::LLMEngine& self, std::shared_ptr<ControlMessage> message) {
         //          auto double_task = [](std::uint64_t x) -> mrc::coroutines::Task<std::uint64_t> {
@@ -1147,6 +1195,16 @@ PYBIND11_MODULE(llm, _module)
 
             return std::make_shared<CoroAwaitable>(wrapped_task(std::move(py_async_function)));
         });
+    // .def("execute", [](std::shared_ptr<llm::LLMEngine> self, std::shared_ptr<llm::LLMContext> context) {
+    //     auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
+    //         auto result = co_await self->execute(context);
+
+    //         // Convert the output to a python object
+    //         co_return py::cast(result);
+    //     };
+
+    //     return std::make_shared<CoroAwaitable>(std::move(convert));
+    // });
 
     _module.attr("__version__") =
         MRC_CONCAT_STR(morpheus_VERSION_MAJOR << "." << morpheus_VERSION_MINOR << "." << morpheus_VERSION_PATCH);
