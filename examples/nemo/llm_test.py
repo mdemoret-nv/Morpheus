@@ -369,7 +369,9 @@ async def run_spearphishing_example2():
 
             gen_prompt = LLMGeneratePrompt(context.task().get("model_name", "gpt-43b-002"), {}, prompts)
 
+            print("Running LLM generate...")
             result = await self._llm_service.generate(gen_prompt)
+            print("Running LLM generate... Done")
 
             context.set_output(result.responses)
 
@@ -384,7 +386,7 @@ async def run_spearphishing_example2():
 
     async def quality_check(subjects: list[str]):
 
-        def _check_quality(self, response: str) -> bool:
+        def _check_quality(response: str) -> bool:
             # Some sort of check here
             return True
 
@@ -399,8 +401,10 @@ async def run_spearphishing_example2():
 
             all_input = context.get_input()
 
-            with message.payload().mutable_dataframe() as df:
-                df["subjects"] = result.responses
+            with context.message().payload().mutable_dataframe() as df:
+                df["subjects"] = all_input["subject"]
+
+                passed_check = all_input["quality_check"]
 
                 if (not all(passed_check)):
                     # Need to separate into 2 messages
@@ -418,44 +422,53 @@ async def run_spearphishing_example2():
 
                 else:
                     # Return a single message
-                    return [message]
+                    return [context.message()]
 
     llm_service = NeMoLLMService()
 
     engine = LLMEngine()
 
     engine.add_node(name="template",
-                    input_names=[],
+                    inputs=[],
                     node=TemplatePromptGenerator(
                         ("Write a brief summary of the email below to use as a subject line for the email. "
                          "Be as brief as possible.\n\n{body}")))
-    engine.add_node(name="nemo", input_names=["/template"], node=LLMGenerateNode(llm_service=llm_service))
-    engine.add_node(name="extract_subject", input_names=["/nemo"], node=FunctionWrapperNode(extract_subject))
-    engine.add_node(name="quality_check", input_names=["/extract_subject"], node=FunctionWrapperNode(quality_check))
+    engine.add_node(name="nemo", inputs=["/template"], node=LLMGenerateNode(llm_service=llm_service))
+    engine.add_node(name="extract_subject", inputs=["/nemo"], node=FunctionWrapperNode(extract_subject))
+    engine.add_node(name="quality_check", inputs=["/extract_subject"], node=FunctionWrapperNode(quality_check))
 
-    engine.add_task_handler(QualityCheckTaskHandler())
+    engine.add_task_handler(inputs=[("subject", "/extract_subject"), ("quality_check", "/quality_check")],
+                            handler=QualityCheckTaskHandler())
 
-    # Create a control message with a single task which uses the LangChain agent executor
-    message = ControlMessage()
+    def build_message():
 
-    message.add_task("llm_engine",
-                     {
-                         "task_type": "template",
-                         "task_dict": LLMDictTask(input_keys=["body"], model_name="gpt-43b-002").dict(),
-                     })
+        # Create a control message with a single task which uses the LangChain agent executor
+        message = ControlMessage()
 
-    payload = cudf.DataFrame({
-        "body": [
-            "Email body #1...",
-            "Email body #2...",
-        ],
-    })
-    message.payload(MessageMeta(payload))
+        message.add_task("llm_engine",
+                         {
+                             "task_type": "template",
+                             "task_dict": LLMDictTask(input_keys=["body"], model_name="gpt-43b-002").dict(),
+                         })
+
+        payload = cudf.DataFrame({
+            "body": [
+                "Email body #1...",
+                "Email body #2...",
+            ],
+        })
+        message.payload(MessageMeta(payload))
+
+        return message
 
     # Finally, run the engine
-    result = await engine.run(message)
+    # result = await engine.run(message)
+    results = [engine.run(build_message()), engine.run(build_message())]
 
-    print(result)
+    for result in asyncio.as_completed(results):
+
+        awaited_result = await result
+        print(f"Got result: {awaited_result}")
 
 
 async def test_async():
@@ -518,3 +531,5 @@ if __name__ == "__main__":
     # run_langchain_example()
     asyncio.run(run_spearphishing_example2())
     # asyncio.run(test_async())
+
+    print("Done")

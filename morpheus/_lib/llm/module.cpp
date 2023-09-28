@@ -162,10 +162,6 @@ class PyTaskAwaitable
             pybind11::gil_scoped_acquire gil;
 
             auto done_callback = py::cpp_function([this, caller](pybind11::object future) {
-                // pybind11::gil_scoped_acquire gil;
-
-                py::print("In done_callback");
-
                 try
                 {
                     // Save the result value
@@ -438,13 +434,9 @@ class PyLLMTaskHandler : public llm::LLMTaskHandler
   public:
     using llm::LLMTaskHandler::LLMTaskHandler;
 
-    std::optional<std::vector<std::shared_ptr<ControlMessage>>> try_handle(
-        llm::LLMEngine& engine,
-        const llm::LLMTask& input_task,
-        std::shared_ptr<ControlMessage> input_message,
-        const llm::LLMGenerateResult& responses) override
+    Task<llm::LLMTaskHandler::return_t> try_handle(std::shared_ptr<llm::LLMContext> context) override
     {
-        using return_t = std::optional<std::vector<std::shared_ptr<ControlMessage>>>;
+        using return_t = llm::LLMTaskHandler::return_t;
 
         pybind11 ::gil_scoped_acquire gil;
 
@@ -462,40 +454,31 @@ class PyLLMTaskHandler : public llm::LLMTaskHandler
                 "\"");
         }
 
-        auto override_result = override(engine, input_task, input_message, responses);
+        auto override_coro = override(context);
 
         // Now determine if the override result is a coroutine or not
-        if (py::module::import("asyncio").attr("iscoroutine")(override_result).cast<bool>())
+        if (!py::module::import("asyncio").attr("iscoroutine")(override_coro).cast<bool>())
         {
-            py::print("Returned a coroutine");
-
-            // Need to schedule the result to run on the loop
-            auto future = py::module::import("asyncio").attr("run_coroutine_threadsafe")(override_result, m_loop);
-
-            // We are a dask future. Quickly check if its done, then release
-            while (!future.attr("done")().cast<bool>())
-            {
-                // Release the GIL and wait for it to be done
-                py::gil_scoped_release nogil;
-
-                boost::this_fiber::yield();
-            }
-
-            // Completed, move into the returned object
-            override_result = future.attr("result")();
+            throw std::runtime_error("Must return a coroutine");
         }
-        else
+
+        auto override_task = py::module::import("asyncio").attr("create_task")(override_coro);
+
+        mrc::pymrc::PyHolder override_result;
         {
-            py::print("Did not return a coroutine");
+            // Release the GIL before awaiting
+            pybind11::gil_scoped_release nogil;
+
+            override_result = co_await PyTaskAwaitable(std::move(override_task));
         }
 
         // Now cast back to the C++ type
         if (pybind11 ::detail ::cast_is_temporary_value_reference<return_t>::value)
         {
             static pybind11 ::detail ::override_caster_t<return_t> caster;
-            return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
+            co_return pybind11 ::detail ::cast_ref<return_t>(std ::move(override_result), caster);
         }
-        return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
+        co_return pybind11 ::detail ::cast_safe<return_t>(std ::move(override_result));
     }
 
   private:
@@ -596,7 +579,7 @@ class PyLLMNode : public PyLLMNodeBase<BaseT>
     using PyLLMNodeBase<BaseT>::PyLLMNodeBase;
 
     std::shared_ptr<llm::LLMNodeRunner> add_node(std::string name,
-                                                 std::vector<std::string> input_names,
+                                                 llm::input_map_t inputs,
                                                  std::shared_ptr<llm::LLMNodeBase> node) override
     {
         // // Try to cast the object to a python object to ensure that we keep it alive
@@ -609,7 +592,7 @@ class PyLLMNode : public PyLLMNodeBase<BaseT>
         // }
 
         // Call the base class implementation
-        return llm::LLMNode::add_node(name, input_names, node);
+        return llm::LLMNode::add_node(std::move(name), std::move(inputs), std::move(node));
     }
 
     // void execute(std::shared_ptr<llm::LLMContext> context) override
@@ -791,7 +774,7 @@ class PyLLMEngine : public PyLLMNode<llm::LLMEngine>
         llm::LLMEngine::add_prompt_generator(prompt_generator);
     }
 
-    void add_task_handler(std::shared_ptr<llm::LLMTaskHandler> task_handler) override
+    void add_task_handler(llm::input_map_t inputs, std::shared_ptr<llm::LLMTaskHandler> task_handler) override
     {
         // Try to cast the object to a python object to ensure that we keep it alive
         auto py_task_handler = std::dynamic_pointer_cast<PyLLMTaskHandler>(task_handler);
@@ -806,7 +789,7 @@ class PyLLMEngine : public PyLLMNode<llm::LLMEngine>
         }
 
         // Call the base class implementation
-        llm::LLMEngine::add_task_handler(task_handler);
+        llm::LLMEngine::add_task_handler(std::move(inputs), std::move(task_handler));
     }
 
     const py::object& get_loop() const
@@ -956,7 +939,7 @@ PYBIND11_MODULE(llm, _module)
 
     py::class_<llm::LLMNodeRunner, std::shared_ptr<llm::LLMNodeRunner>>(_module, "LLMNodeRunner")
         .def_property_readonly("name", &llm::LLMNodeRunner::name)
-        .def_property_readonly("input_names", &llm::LLMNodeRunner::input_names);
+        .def_property_readonly("inputs", &llm::LLMNodeRunner::inputs);
     // .def("execute", [](std::shared_ptr<llm::LLMNodeRunner> self, std::shared_ptr<llm::LLMContext> context) {
     //     auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
     //         auto result = co_await self->execute(context);
@@ -970,7 +953,32 @@ PYBIND11_MODULE(llm, _module)
 
     py::class_<llm::LLMNode, llm::LLMNodeBase, PyLLMNode<>, std::shared_ptr<llm::LLMNode>>(_module, "LLMNode")
         .def(py::init_alias<>())
-        .def("add_node", &llm::LLMNode::add_node, py::arg("name"), py::arg("input_names"), py::arg("node"));
+        .def(
+            "add_node",
+            [](llm::LLMNode& self,
+               std::string name,
+               std::vector<std::variant<std::string, std::pair<std::string, std::string>>> inputs,
+               std::shared_ptr<llm::LLMNodeBase> node) {
+                llm::input_map_t converted_inputs;
+
+                for (const auto& single_input : inputs)
+                {
+                    if (std::holds_alternative<std::string>(single_input))
+                    {
+                        converted_inputs.push_back(
+                            {std::get<std::string>(single_input), std::get<std::string>(single_input)});
+                    }
+                    else
+                    {
+                        converted_inputs.push_back(std::get<std::pair<std::string, std::string>>(single_input));
+                    }
+                }
+
+                return self.add_node(std::move(name), std::move(converted_inputs), std::move(node));
+            },
+            py::arg("name"),
+            py::arg("inputs"),
+            py::arg("node"));
     // .def("execute", [](std::shared_ptr<llm::LLMNode> self, std::shared_ptr<llm::LLMContext> context) {
     //     auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
     //         auto result = co_await self->execute(context);
@@ -999,7 +1007,25 @@ PYBIND11_MODULE(llm, _module)
 
     LLMPromptGenerator.def(py::init<>()).def("try_handle", &llm::LLMPromptGenerator::try_handle);
 
-    LLMTaskHandler.def(py::init<>()).def("try_handle", &llm::LLMTaskHandler::try_handle);
+    LLMTaskHandler.def(py::init<>())
+        .def(
+            "try_handle",
+            [](std::shared_ptr<llm::LLMTaskHandler> self, std::shared_ptr<llm::LLMContext> context) {
+                auto convert = [](std::shared_ptr<llm::LLMTaskHandler> self,
+                                  std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
+                    VLOG(10) << "Running LLMEngine::run";
+
+                    auto result = co_await self->try_handle(context);
+
+                    py::gil_scoped_acquire gil;
+
+                    // Convert the output to a python object
+                    co_return py::cast(result);
+                };
+
+                return std::make_shared<CoroAwaitable>(convert(self, context));
+            },
+            py::arg("context"));
 
     LLMEngine
         .def(py::init_alias<>())
@@ -1007,7 +1033,30 @@ PYBIND11_MODULE(llm, _module)
         //     return std::make_shared<PyLLMEngine>(std::move(llm_service));
         // }))
         .def("add_prompt_generator", &llm::LLMEngine::add_prompt_generator, py::arg("prompt_generator"))
-        .def("add_task_handler", &llm::LLMEngine::add_task_handler, py::arg("task_handler"))
+        .def(
+            "add_task_handler",
+            [](llm::LLMEngine& self,
+               std::vector<std::variant<std::string, std::pair<std::string, std::string>>> inputs,
+               std::shared_ptr<llm::LLMTaskHandler> handler) {
+                llm::input_map_t converted_inputs;
+
+                for (const auto& single_input : inputs)
+                {
+                    if (std::holds_alternative<std::string>(single_input))
+                    {
+                        converted_inputs.push_back(
+                            {std::get<std::string>(single_input), std::get<std::string>(single_input)});
+                    }
+                    else
+                    {
+                        converted_inputs.push_back(std::get<std::pair<std::string, std::string>>(single_input));
+                    }
+                }
+
+                return self.add_task_handler(std::move(converted_inputs), std::move(handler));
+            },
+            py::arg("inputs"),
+            py::arg("handler"))
         // .def("add_node", &llm::LLMEngine::add_node, py::arg("name"), py::arg("input_names"), py::arg("node"))
         .def(
             "run",

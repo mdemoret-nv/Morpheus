@@ -1,3 +1,4 @@
+import asyncio
 import os
 import threading
 import typing
@@ -164,6 +165,13 @@ class NeMoClient:
         self._customization_id = customization_id
         self._infer_kwargs = infer_kwargs if infer_kwargs is not None else {}
 
+    async def query_async(self, prompt: str) -> str:
+        future = self._parent._conn.generate(self._model_name, prompt, return_type="async")
+        future = asyncio.wrap_future(future)
+        result = await future
+        result = NemoLLM.post_process_generate_response(result, return_text_completion_only=True)
+        return f"{prompt}{result}"
+
     async def generate(self, prompt: str | list[str]):
 
         convert_to_string = False
@@ -173,13 +181,10 @@ class NeMoClient:
             prompt = [prompt]
             convert_to_string = True
 
-        result: list[str] = self._parent._conn.generate_multiple(
-            model=self._model_name,
-            prompts=prompt,
-            customization_id=self._customization_id,  # type: ignore
-            return_type="text",
-            **self._infer_kwargs,
-        )  # type: ignore
+        tasks = [asyncio.ensure_future(self.query_async(p)) for p in prompt]
+        await asyncio.wait(tasks)
+
+        result = [task.result() for task in tasks]
 
         if (convert_to_string):
             return result[0]
