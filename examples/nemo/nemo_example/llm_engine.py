@@ -7,6 +7,7 @@ from abc import abstractmethod
 
 from langchain.agents import Agent
 from langchain.agents import AgentExecutor
+from langchain.callbacks.manager import AsyncCallbackManagerForLLMRun
 from langchain.callbacks.manager import CallbackManagerForLLMRun
 from langchain.llms.base import LLM
 from langchain.schema import AgentAction
@@ -62,7 +63,7 @@ class NeMoLangChain(LLM):
         api_key = api_key if api_key is not None else os.environ.get("NGC_API_KEY", None)
         org_id = org_id if org_id is not None else os.environ.get("NGC_ORG_ID", None)
 
-        super().__init__(api_key=api_key, org_id=org_id, **data)
+        super().__init__(**data)
 
         self._nemo_service: NeMoService = NeMoService.instance(api_key=api_key, org_id=org_id)
 
@@ -89,7 +90,7 @@ class NeMoLangChain(LLM):
                                                    "stop": stop,
                                                })
 
-        response: str = client.generate(prompt=prompt)
+        response: str = client.query(prompt=prompt)
 
         # If it ends with one of the stop words, remove it
         for s in stop:
@@ -98,6 +99,40 @@ class NeMoLangChain(LLM):
                 break
 
         logger.debug("Prompt: '%s', Response: '%s'", prompt, response)
+
+        return response
+
+    async def _acall(
+        self,
+        prompt: str,
+        stop: typing.Optional[list[str]] = None,
+        run_manager: typing.Optional[AsyncCallbackManagerForLLMRun] = None,
+    ) -> str:
+
+        # if self.stop:
+        #     # append manual stop words
+        #     stop = self.stop if stop is None else stop + self.stop
+
+        client = self._nemo_service.get_client(model_name=self.model_name,
+                                               customization_id=self.customization_id,
+                                               infer_kwargs={
+                                                   "tokens_to_generate": 100,
+                                                   "temperature": 0.0,
+                                                   "stop": stop,
+                                               })
+
+        response: str = await client.query_async(prompt=prompt)
+
+        if (response.startswith(prompt)):
+            response = response.removeprefix(prompt)
+
+        # If it ends with one of the stop words, remove it
+        for s in stop:
+            if (response.endswith(s)):
+                response = response.removesuffix(s)
+                break
+
+        logger.debug("Prompt: '%s'\n=====\nResponse: '%s'", prompt, response)
 
         return response
 

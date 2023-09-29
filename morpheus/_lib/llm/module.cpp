@@ -182,8 +182,6 @@ class PyTaskAwaitable
 
         mrc::pymrc::PyHolder await_resume()
         {
-            VLOG(10) << "In await_resume";
-
             if (m_exception_ptr)
             {
                 std::rethrow_exception(m_exception_ptr);
@@ -912,6 +910,10 @@ PYBIND11_MODULE(llm, _module)
     py::class_<llm::LLMContext, std::shared_ptr<llm::LLMContext>>(_module, "LLMContext")
         .def_property_readonly("name", [](llm::LLMContext& self) { return self.name(); })
         .def_property_readonly("full_name", [](llm::LLMContext& self) { return self.full_name(); })
+        .def_property_readonly("all_outputs",
+                               [](llm::LLMContext& self) {
+                                   return mrc::pymrc::cast_from_json(self.all_outputs());
+                               })  // Remove all_outputs before release!
         .def("task", [](llm::LLMContext& self) { return self.task(); })
         .def("message", [](llm::LLMContext& self) { return self.message(); })
         .def("get_input",

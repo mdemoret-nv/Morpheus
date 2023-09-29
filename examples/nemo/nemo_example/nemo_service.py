@@ -165,14 +165,22 @@ class NeMoClient:
         self._customization_id = customization_id
         self._infer_kwargs = infer_kwargs if infer_kwargs is not None else {}
 
+    def query(self, prompt: str) -> str:
+        result = self._parent._conn.generate(model=self._model_name,
+                                             prompt=prompt,
+                                             return_type="text",
+                                             **self._infer_kwargs)
+
+        return result
+
     async def query_async(self, prompt: str) -> str:
-        future = self._parent._conn.generate(self._model_name, prompt, return_type="async")
+        future = self._parent._conn.generate(self._model_name, prompt, return_type="async", **self._infer_kwargs)
         future = asyncio.wrap_future(future)
         result = await future
         result = NemoLLM.post_process_generate_response(result, return_text_completion_only=True)
         return f"{prompt}{result}"
 
-    async def generate(self, prompt: str | list[str]):
+    async def query_batch_async(self, prompt: str | list[str]):
 
         convert_to_string = False
 

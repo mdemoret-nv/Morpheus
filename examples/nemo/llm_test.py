@@ -1,8 +1,12 @@
 # Speed up the import of cudf. From https://github.com/nv-morpheus/Morpheus/issues/1101
+import logging
+import textwrap
 from ctypes import byref
 from ctypes import c_int
 
 from numba import cuda
+
+from morpheus.utils.logger import configure_logging
 
 dv = c_int(0)
 cuda.cudadrv.driver.driver.cuDriverGetVersion(byref(dv))
@@ -44,8 +48,10 @@ print(f"Import 3a took: t {time.time() - start_time}")
 # from morpheus._lib.llm import LLMPromptGenerator
 # from morpheus._lib.llm import LLMContext
 # from morpheus._lib.llm import LLMEngine
+from morpheus._lib.llm import LLMContext
 from morpheus._lib.llm import LLMGeneratePrompt
 from morpheus._lib.llm import LLMGenerateResult
+from morpheus._lib.llm import LLMNodeBase
 from morpheus._lib.llm import LLMService
 
 print(f"Import 3 took: t {time.time() - start_time}")
@@ -56,6 +62,31 @@ print(f"Import 3 took: t {time.time() - start_time}")
 # from morpheus._lib.llm import LLMTaskHandler
 # from morpheus.messages import ControlMessage
 # from morpheus.messages import MessageMeta
+
+# Enable the default logger.
+configure_logging(log_level=logging.DEBUG)
+
+
+class ExtracterNode(LLMNodeBase):
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    async def execute(self, context: LLMContext):
+
+        # Get the keys from the task
+        input_keys = context.task()["input_keys"]
+
+        with context.message().payload().mutable_dataframe() as df:
+            input_dict: list[dict] = df[input_keys].to_dict(orient="list")
+
+        if (len(input_keys) == 1):
+            # Extract just the first key if there is only 1
+            context.set_output(input_dict[input_keys[0]])
+        else:
+            context.set_output(input_dict)
+
+        return context
 
 
 class NeMoLLMService(LLMService):
@@ -78,78 +109,269 @@ class NeMoLLMService(LLMService):
         return LLMGenerateResult(prompt, responses)
 
 
-def run_langchain_example():
+async def run_haystack_example():
 
-    from langchain.agents import AgentExecutor
-    from langchain.agents import AgentType
-    from langchain.agents import initialize_agent
+    import pydantic
+    from haystack import Pipeline
+    from haystack.agents import Agent
+    from haystack.agents import Tool
+    from haystack.agents.base import ToolsManager
+    from haystack.nodes import PromptModel
+    from haystack.nodes import PromptNode
+    from haystack.nodes import PromptTemplate
+    from haystack.nodes.prompt.invocation_layer import PromptModelInvocationLayer
+    from haystack.nodes.retriever.web import WebRetriever
+    from haystack.pipelines import WebQAPipeline
     from nemo_example.common import LLMDictTask
+    from nemo_example.llm_engine import NeMoLangChain
 
     import cudf
 
+    from morpheus._lib.llm import LLMContext
     from morpheus._lib.llm import LLMEngine
+    from morpheus._lib.llm import LLMNodeBase
     from morpheus._lib.llm import LLMPromptGenerator
     from morpheus._lib.llm import LLMTask
     from morpheus._lib.llm import LLMTaskHandler
     from morpheus.messages import ControlMessage
     from morpheus.messages import MessageMeta
 
-    class MyPromptGeneratorAsync(LLMPromptGenerator):
+    class NeMoHaystackInvocationLayer(PromptModelInvocationLayer):
 
-        async def try_handle(
-                self, engine: LLMEngine, task: LLMTask,
-                message: ControlMessage) -> typing.Optional[typing.Union[LLMGeneratePrompt, LLMGenerateResult]]:
+        def __init__(self, model_name_or_path: str, **kwargs):
+            super().__init__(model_name_or_path, **kwargs)
 
-            print("MyPromptGenerator.try_handle")
+            self._nemo_service: NeMoService = NeMoService.instance()
 
-            await asyncio.sleep(5)
+            self._max_length = kwargs.get("max_length", None)
 
-            print("MyPromptGenerator.try_handle... done")
+        def invoke(self, prompt: str, *args, **kwargs):
+            """
+            It takes a prompt and returns a list of generated text using the underlying model.
+            :return: A list of generated text.
+            """
 
-            return LLMGeneratePrompt()
+            client = self._nemo_service.get_client(model_name=self.model_name_or_path,
+                                                   infer_kwargs={
+                                                       "tokens_to_generate": self._max_length,
+                                                       "stop": kwargs.get("stop_words", None),
+                                                       "top_k": kwargs.get("top_k", None),
+                                                   })
 
-    # Simple class which uses the sync implementation of try_handle but always fails
-    class AlwaysFailPromptGenerator(LLMPromptGenerator):
+            return [client.query(prompt=prompt.rstrip())]
 
-        def try_handle(self, engine: LLMEngine, task: LLMTask,
-                       message: ControlMessage) -> typing.Optional[typing.Union[LLMGeneratePrompt, LLMGenerateResult]]:
-            # Always return None to skip this generator
-            return None
+        @classmethod
+        def supports(cls, model_name_or_path: str, **kwargs) -> bool:
+            """
+            Checks if the given model is supported by this invocation layer.
+
+            :param model_name_or_path: The name or path of the model.
+            :param kwargs: Additional keyword arguments passed to the underlying model which might be used to determine
+            if the model is supported.
+            :return: True if this invocation layer supports the model, False otherwise.
+            """
+            return True
+
+        def _ensure_token_limit(
+            self, prompt: typing.Union[str, typing.List[typing.Dict[str, str]]]
+        ) -> typing.Union[str, typing.List[typing.Dict[str, str]]]:
+            """Ensure that length of the prompt and answer is within the maximum token length of the PromptModel.
+
+            :param prompt: Prompt text to be sent to the generative model.
+            """
+            return prompt
 
     # Prompt generator wrapper around a LangChain agent executor
-    class LangChainAgentExectorPromptGenerator(LLMPromptGenerator):
+    class HaystackAgentNode(LLMNodeBase):
 
-        def __init__(self, agent_executor: AgentExecutor):
-            self._agent_executor = agent_executor
+        def __init__(self, agent: Agent):
+            super().__init__()
 
-        async def try_handle(self, input_task: LLMTask,
-                             input_message: ControlMessage) -> LLMGeneratePrompt | LLMGenerateResult | None:
+            self._agent = agent
 
-            if (input_task["task_type"] != "dictionary"):
-                return None
+        async def execute(self, context: LLMContext):
 
-            input_keys = input_task["input_keys"]
+            input_prompts = context.get_input()
 
-            with input_message.payload().mutable_dataframe() as df:
-                input_dict: list[dict] = df[input_keys].to_dict(orient="records")
+            results = [self._agent.run(p) for p in input_prompts]
 
-            results = []
-
-            for x in input_dict:
-                # Await the result of the agent executor
-                single_result = await self._agent_executor.arun(**x)
-
-                results.append(single_result)
-
-            return LLMGenerateResult(model_name=input_task["model_name"],
-                                     model_kwargs=input_task["model_kwargs"],
-                                     prompts=[],
-                                     responses=results)
+            context.set_output(results)
 
     class SimpleTaskHandler(LLMTaskHandler):
 
-        def try_handle(self, engine: LLMEngine, task: LLMTask, message: ControlMessage,
-                       result: LLMGenerateResult) -> typing.Optional[list[ControlMessage]]:
+        async def try_handle(self, context: LLMContext):
+
+            with message.payload().mutable_dataframe() as df:
+                df["response"] = context.get_input()
+
+            return [message]
+
+    # Create the NeMo LLM Service using our API key and org ID
+    # llm = NeMoLangChain(model_name="llama-2-70b-hf")
+    # llm = OpenAI(temperature=0)
+
+    search_key = os.environ.get("SERPER_API_KEY")
+    if not search_key:
+        raise ValueError("Please set the SERPER_API_KEY environment variable")
+
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if not openai_key:
+        raise ValueError("Please set the OPENAI_API_KEY environment variable")
+
+    haystack_model = PromptModel(model_name_or_path="gpt-43b-002", invocation_layer_class=NeMoHaystackInvocationLayer)
+
+    pn = PromptNode(
+        model_name_or_path=haystack_model,
+        api_key=openai_key,
+        max_length=256,
+        default_prompt_template="question-answering-with-document-scores",
+    )
+    web_retriever = WebRetriever(api_key=search_key)
+    pipeline = WebQAPipeline(retriever=web_retriever, prompt_node=pn)
+
+    few_shot_prompt = """
+    You are a helpful and knowledgeable agent. To achieve your goal of answering complex questions correctly, you have access to the following tools:
+
+    Search: useful for when you need to Google questions. You should ask targeted questions, for example, Who is Anthony Dirrell's brother?
+
+    To answer questions, you'll need to go through multiple steps involving step-by-step thinking and selecting appropriate tools and their inputs; tools will respond with observations. When you are ready for a final answer, respond with the `Final Answer:`
+    Examples:
+    ##
+    Question: Anthony Dirrell is the brother of which super middleweight title holder?
+    Thought: Let's think step by step. To answer this question, we first need to know who Anthony Dirrell is.
+    Tool: Search
+    Tool Input: Who is Anthony Dirrell?
+    Observation: Boxer
+    Thought: We've learned Anthony Dirrell is a Boxer. Now, we need to find out who his brother is.
+    Tool: Search
+    Tool Input: Who is Anthony Dirrell brother?
+    Observation: Andre Dirrell
+    Thought: We've learned Andre Dirrell is Anthony Dirrell's brother. Now, we need to find out what title Andre Dirrell holds.
+    Tool: Search
+    Tool Input: What is the Andre Dirrell title?
+    Observation: super middleweight
+    Thought: We've learned Andre Dirrell title is super middleweight. Now, we can answer the question.
+    Final Answer: Andre Dirrell
+    ##
+    Question: What year was the party of the winner of the 1971 San Francisco mayoral election founded?
+    Thought: Let's think step by step. To answer this question, we first need to know who won the 1971 San Francisco mayoral election.
+    Tool: Search
+    Tool Input: Who won the 1971 San Francisco mayoral election?
+    Observation: Joseph Alioto
+    Thought: We've learned Joseph Alioto won the 1971 San Francisco mayoral election. Now, we need to find out what party he belongs to.
+    Tool: Search
+    Tool Input: What party does Joseph Alioto belong to?
+    Observation: Democratic Party
+    Thought: We've learned Democratic Party is the party of Joseph Alioto. Now, we need to find out when the Democratic Party was founded.
+    Tool: Search
+    Tool Input: When was the Democratic Party founded?
+    Observation: 1828
+    Thought: We've learned the Democratic Party was founded in 1828. Now, we can answer the question.
+    Final Answer: 1828
+    ##
+    Question: {query}
+    Thought:
+    {transcript}
+    """
+
+    few_shot_agent_template = PromptTemplate(textwrap.dedent(few_shot_prompt))
+    prompt_node = PromptNode(model_name_or_path=haystack_model,
+                             api_key=openai_key,
+                             max_length=512,
+                             stop_words=["Observation:"])
+
+    web_qa_tool = Tool(
+        name="Search",
+        pipeline_or_node=pipeline,
+        description="useful for when you need to Google questions.",
+        output_variable="results",
+    )
+
+    agent = Agent(prompt_node=prompt_node,
+                  prompt_template=few_shot_agent_template,
+                  tools_manager=ToolsManager([web_qa_tool]))
+
+    hotpot_questions = [
+        "What year was the father of the Princes in the Tower born?",
+        "Name the movie in which the daughter of Noel Harrison plays Violet Trefusis.",
+        "Where was the actress who played the niece in the Priest film born?",
+        "Which author is English: John Braine or Studs Terkel?",
+    ]
+
+    # for question in hotpot_questions:
+    #     result = agent.run(query=question)
+    #     print(f"\n{result}")
+
+    engine = LLMEngine()
+
+    engine.add_node("extract_prompt", [], ExtracterNode())
+    engine.add_node("haystack", [("query", "/extract_prompt")], HaystackAgentNode(agent=agent))
+
+    # Add our task handler
+    engine.add_task_handler(inputs=["/haystack"], handler=SimpleTaskHandler())
+
+    # Create a control message with a single task which uses the LangChain agent executor
+    message = ControlMessage()
+
+    message.add_task("llm_engine",
+                     {
+                         "task_type": "template",
+                         "task_dict": LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict(),
+                     })
+
+    payload = cudf.DataFrame({"input": hotpot_questions})
+    message.payload(MessageMeta(payload))
+
+    # Finally, run the engine
+    result = await engine.run(message)
+
+    print(result)
+
+
+async def run_langchain_example():
+
+    import pydantic
+    from langchain import LLMMathChain
+    from langchain import OpenAI
+    from langchain.agents import AgentExecutor
+    from langchain.agents import AgentType
+    from langchain.agents import initialize_agent
+    from langchain.agents.tools import Tool
+    from nemo_example.common import LLMDictTask
+    from nemo_example.llm_engine import NeMoLangChain
+
+    import cudf
+
+    from morpheus._lib.llm import LLMContext
+    from morpheus._lib.llm import LLMEngine
+    from morpheus._lib.llm import LLMNodeBase
+    from morpheus._lib.llm import LLMPromptGenerator
+    from morpheus._lib.llm import LLMTask
+    from morpheus._lib.llm import LLMTaskHandler
+    from morpheus.messages import ControlMessage
+    from morpheus.messages import MessageMeta
+
+    # Prompt generator wrapper around a LangChain agent executor
+    class LangChainAgentExectorPromptGenerator(LLMNodeBase):
+
+        def __init__(self, agent_executor: AgentExecutor):
+            super().__init__()
+
+            self._agent_executor = agent_executor
+
+        async def execute(self, context: LLMContext):
+
+            input_dict = context.get_input()
+
+            results_async = [self._agent_executor.arun(**x) for x in input_dict]
+
+            results = await asyncio.gather(*results_async)
+
+            context.set_output(results)
+
+    class SimpleTaskHandler(LLMTaskHandler):
+
+        async def try_handle(self, context: LLMContext):
 
             with message.payload().mutable_dataframe() as df:
                 df["response"] = result.responses
@@ -157,27 +379,69 @@ def run_langchain_example():
             return [message]
 
     # Create the NeMo LLM Service using our API key and org ID
-    llm_service = NeMoLLMService(api_key="my_api_key", org_id="my_org_id")
+    llm = NeMoLangChain(model_name="llama-2-70b-hf")
+    # llm = OpenAI(temperature=0)
 
-    engine = LLMEngine(llm_service=llm_service)
+    engine = LLMEngine()
+
+    llm_math_chain = LLMMathChain.from_llm(llm=llm, verbose=True)
+    primes = {998: 7901, 999: 7907, 1000: 7919}
+
+    class CalculatorInput(pydantic.BaseModel):
+        question: str = pydantic.Field()
+
+    class PrimeInput(pydantic.BaseModel):
+        n: int = pydantic.Field()
+
+    def is_prime(n: int) -> bool:
+        if n <= 1 or (n % 2 == 0 and n > 2):
+            return False
+        for i in range(3, int(n**0.5) + 1, 2):
+            if n % i == 0:
+                return False
+        return True
+
+    def get_prime(n: int, primes: dict = primes) -> str:
+        return str(primes.get(int(n)))
+
+    async def aget_prime(n: int, primes: dict = primes) -> str:
+        return str(primes.get(int(n)))
+
+    tools = [
+        Tool(
+            name="GetPrime",
+            func=get_prime,
+            description="A tool that returns the `n`th prime number",
+            args_schema=PrimeInput,
+            coroutine=aget_prime,
+        ),
+        Tool.from_function(
+            func=llm_math_chain.run,
+            name="Calculator",
+            description="Useful for when you need to compute mathematical expressions",
+            args_schema=CalculatorInput,
+            coroutine=llm_math_chain.arun,
+        ),
+    ]
 
     # Create a LangChain agent executor using the NeMo LLM Service and specified tools
-    agent = initialize_agent(tools,
-                             NeMoLangChainWrapper(engine.llm_service.get_client(model_name="gpt-43b-002")),
-                             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                             verbose=True)
+    agent = initialize_agent(tools, llm=llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
 
-    # Add 2 prompt generators to test fallback
-    engine.add_prompt_generator(AlwaysFailPromptGenerator())
-    engine.add_prompt_generator(LangChainAgentExectorPromptGenerator(agent))
+    engine.add_node("extract_prompt", [], ExtracterNode())
+    engine.add_node("langchain", [("prompt", "/extract_prompt")],
+                    LangChainAgentExectorPromptGenerator(agent_executor=agent))
 
     # Add our task handler
-    engine.add_task_handler(SimpleTaskHandler())
+    engine.add_task_handler(inputs=["langchain"], handler=SimpleTaskHandler())
 
     # Create a control message with a single task which uses the LangChain agent executor
     message = ControlMessage()
 
-    message.add_task("llm_query", LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict())
+    message.add_task("llm_engine",
+                     {
+                         "task_type": "template",
+                         "task_dict": LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict(),
+                     })
 
     payload = cudf.DataFrame({
         "input": [
@@ -188,9 +452,111 @@ def run_langchain_example():
     message.payload(MessageMeta(payload))
 
     # Finally, run the engine
-    result = engine.run(message)
+    result = await engine.run(message)
 
-    print("Done")
+
+async def run_langchain_example2():
+
+    import pydantic
+    from aiohttp import ClientSession
+    from langchain import LLMMathChain
+    from langchain import OpenAI
+    from langchain.agents import AgentExecutor
+    from langchain.agents import AgentType
+    from langchain.agents import initialize_agent
+    from langchain.agents import load_tools
+    from langchain.agents.tools import Tool
+    from langchain.callbacks.stdout import StdOutCallbackHandler
+    from langchain.callbacks.tracers import LangChainTracer
+    from langchain.llms import OpenAI
+    from nemo_example.common import LLMDictTask
+    from nemo_example.llm_engine import NeMoLangChain
+
+    import cudf
+
+    from morpheus._lib.llm import LLMContext
+    from morpheus._lib.llm import LLMEngine
+    from morpheus._lib.llm import LLMNodeBase
+    from morpheus._lib.llm import LLMPromptGenerator
+    from morpheus._lib.llm import LLMTask
+    from morpheus._lib.llm import LLMTaskHandler
+    from morpheus.messages import ControlMessage
+    from morpheus.messages import MessageMeta
+
+    # Prompt generator wrapper around a LangChain agent executor
+    class LangChainAgentExectorPromptGenerator(LLMNodeBase):
+
+        def __init__(self, agent_executor: AgentExecutor):
+            super().__init__()
+
+            self._agent_executor = agent_executor
+
+        async def execute(self, context: LLMContext):
+
+            input_dict: dict = context.get_input()
+
+            if (isinstance(input_dict, list)):
+                input_dict = {"input": input_dict}
+
+            # Transform from dict[str, list[Any]] to list[dict[str, Any]]
+            input_list = [dict(zip(input_dict, t)) for t in zip(*input_dict.values())]
+
+            results_async = [self._agent_executor.arun(**x) for x in input_list]
+
+            results = await asyncio.gather(*results_async)
+
+            context.set_output(results)
+
+    class SimpleTaskHandler(LLMTaskHandler):
+
+        async def try_handle(self, context: LLMContext):
+
+            with message.payload().mutable_dataframe() as df:
+                df["response"] = context.get_input()
+
+            return [message]
+
+    # Create the NeMo LLM Service using our API key and org ID
+    # llm = NeMoLangChain(model_name="llama-2-70b-hf")
+    llm = NeMoLangChain(model_name="gpt-43b-002")
+    # llm = OpenAI(temperature=0)
+    tools = load_tools(["google-serper", "llm-math"], llm=llm)
+    agent = initialize_agent(tools, llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION, verbose=True)
+
+    engine = LLMEngine()
+
+    engine.add_node("extract_prompt", [], ExtracterNode())
+    engine.add_node("langchain", [("prompt", "/extract_prompt")],
+                    LangChainAgentExectorPromptGenerator(agent_executor=agent))
+
+    # Add our task handler
+    engine.add_task_handler(inputs=["/langchain"], handler=SimpleTaskHandler())
+
+    # Create a control message with a single task which uses the LangChain agent executor
+    message = ControlMessage()
+
+    message.add_task("llm_engine",
+                     {
+                         "task_type": "template",
+                         "task_dict": LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict(),
+                     })
+
+    questions = [
+        "Who won the US Open men's final in 2019?",
+        # "Who won the US Open men's final in 2019? What is his age raised to the 0.334 power?",
+        "Who is Olivia Wilde's boyfriend? What is his current age raised to the 0.23 power?",
+        # "Who won the most recent formula 1 grand prix? What is their age raised to the 0.23 power?",
+        # "Who won the US Open women's final in 2019? What is her age raised to the 0.34 power?",
+        # "Who is Beyonce's husband? What is his age raised to the 0.19 power?",
+    ]
+
+    payload = cudf.DataFrame({
+        "input": questions,
+    })
+    message.payload(MessageMeta(payload))
+
+    # Finally, run the engine
+    result = await engine.run(message)
 
 
 def run_spearphishing_example():
@@ -528,8 +894,10 @@ async def test_async():
 
 
 if __name__ == "__main__":
-    # run_langchain_example()
-    asyncio.run(run_spearphishing_example2())
+    # asyncio.run(run_haystack_example())
+    # asyncio.run(run_langchain_example())
+    asyncio.run(run_langchain_example2())
+    # asyncio.run(run_spearphishing_example2())
     # asyncio.run(test_async())
 
     print("Done")

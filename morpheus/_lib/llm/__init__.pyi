@@ -38,6 +38,11 @@ class LLMContext():
     def set_output(self, arg0: object) -> None: ...
     def task(self) -> LLMTask: ...
     @property
+    def all_outputs(self) -> object:
+        """
+        :type: object
+        """
+    @property
     def full_name(self) -> str:
         """
         :type: str

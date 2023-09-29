@@ -121,6 +121,11 @@ class LLMContext : public std::enable_shared_from_this<LLMContext>
         return m_state->message;
     }
 
+    nlohmann::json::const_reference all_outputs() const
+    {
+        return m_state->outputs;
+    }
+
     std::string full_name() const
     {
         std::string full_name = m_name;
