@@ -92,11 +92,15 @@ class NeMoLangChain(LLM):
 
         response: str = client.query(prompt=prompt)
 
+        if (response.startswith(prompt)):
+            response = response.removeprefix(prompt)
+
         # If it ends with one of the stop words, remove it
-        for s in stop:
-            if (response.endswith(s)):
-                response = response.removesuffix(s)
-                break
+        if (stop is not None):
+            for s in stop:
+                if (response.endswith(s)):
+                    response = response.removesuffix(s)
+                    break
 
         logger.debug("Prompt: '%s', Response: '%s'", prompt, response)
 
@@ -126,11 +130,12 @@ class NeMoLangChain(LLM):
         if (response.startswith(prompt)):
             response = response.removeprefix(prompt)
 
-        # If it ends with one of the stop words, remove it
-        for s in stop:
-            if (response.endswith(s)):
-                response = response.removesuffix(s)
-                break
+        if (stop is not None):
+            # If it ends with one of the stop words, remove it
+            for s in stop:
+                if (response.endswith(s)):
+                    response = response.removesuffix(s)
+                    break
 
         logger.debug("Prompt: '%s'\n=====\nResponse: '%s'", prompt, response)
 
