@@ -22,7 +22,8 @@ __all__ = [
     "LLMPromptGenerator",
     "LLMService",
     "LLMTask",
-    "LLMTaskHandler"
+    "LLMTaskHandler",
+    "LangChainTemplateNodeCpp"
 ]
 
 
@@ -152,5 +153,14 @@ class LLMTask():
 class LLMTaskHandler():
     def __init__(self) -> None: ...
     def try_handle(self, context: LLMContext) -> CoroAwaitable: ...
+    pass
+class LangChainTemplateNodeCpp(LLMNodeBase):
+    def __init__(self, template: str) -> None: ...
+    def execute(self, arg0: LLMContext) -> CoroAwaitable: ...
+    @property
+    def template(self) -> str:
+        """
+        :type: str
+        """
     pass
 __version__ = '23.11.0'

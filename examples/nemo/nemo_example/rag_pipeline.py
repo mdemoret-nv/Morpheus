@@ -40,8 +40,10 @@ from pypdf.errors import PdfStreamError
 
 import cudf
 
+from morpheus._lib.llm import LangChainTemplateNodeCpp
 from morpheus._lib.llm import LLMContext
 from morpheus._lib.llm import LLMEngine
+from morpheus._lib.llm import LLMNode
 from morpheus._lib.llm import LLMNodeBase
 from morpheus._lib.llm import LLMPromptGenerator
 from morpheus._lib.llm import LLMTask
@@ -59,10 +61,11 @@ from .common import ExtracterNode
 from .common import LLMDictTask
 from .llm_engine import NeMoLangChain
 from .logging_timer import log_time
+from .nemo_service import NeMoService
 
 logger = logging.getLogger(f"morpheus.{__name__}")
 
-MILVUS_COLLECTION_NAME = "Test"
+MILVUS_COLLECTION_NAME = "Confluence"
 
 
 class ConfluenceSource(SingleOutputSource):
@@ -336,42 +339,102 @@ class LlamaCppAsync(LlamaCpp):
             return await asyncio.to_thread(self._call, prompt, stop, None)
 
 
+class LangChainTemplateNode(LLMNodeBase):
+
+    def __init__(self, template: str) -> None:
+        super().__init__()
+
+        self._input_variables = ["question"]
+        self._template = template
+        self._template_format = "f-string"
+
+    async def execute(self, context: LLMContext):
+
+        # Get the keys from the task
+        input_dict = context.get_input()
+
+        if (isinstance(input_dict, list)):
+            input_dict = {self._input_variables[0]: input_dict}
+
+        # Transform from dict[str, list[Any]] to list[dict[str, Any]]
+        input_list = [dict(zip(input_dict, t)) for t in zip(*input_dict.values())]
+
+        output_list = [self._template.format(**x) for x in input_list]
+
+        context.set_output(output_list)
+
+        return context
+
+
+class LangChainLlmNode(LLMNodeBase):
+
+    def __init__(self, temperature: float) -> None:
+        super().__init__()
+
+        self._temperature = temperature
+
+        self._nemo_service = NeMoService.instance()
+        self._nemo_client = self._nemo_service.get_client(model_name="gpt-43b-002",
+                                                          infer_kwargs={"temperature": temperature})
+
+    async def execute(self, context: LLMContext):
+
+        # Get the keys from the task
+        input_dict = context.get_input("question")
+
+        output_list = await self._nemo_client.query_batch_async(prompt=input_dict)
+
+        context.set_output(output_list)
+
+        return context
+
+
 # Prompt generator wrapper around a LangChain agent executor
-class LangChainChainNode(LLMNodeBase):
+class LangChainChainNode(LLMNode):
 
     def __init__(self, chain: Chain):
         super().__init__()
 
         self._chain = chain
 
-    async def execute(self, context: LLMContext):
+        self._chain_dict = chain.dict()
 
-        input_dict: dict = context.get_input()
+        # template_node = LangChainTemplateNode(template=self._chain_dict["prompt"]["template"])
+        template_node = LangChainTemplateNodeCpp(template=self._chain_dict["prompt"]["template"])
 
-        if (isinstance(input_dict, list)):
-            input_dict = {"query": input_dict}
+        self.add_node("prompt", [("question", "/extract_prompt")], template_node)
 
-        # Transform from dict[str, list[Any]] to list[dict[str, Any]]
-        input_list = [dict(zip(input_dict, t)) for t in zip(*input_dict.values())]
+        self.add_node("llm", [("input", "/langchain.prompt")],
+                      LangChainLlmNode(temperature=self._chain_dict["llm"]["temperature"]))
 
-        # outputs = []
+    # async def execute(self, context: LLMContext):
 
-        # for x in input_list:
-        #     result = await self._chain.acall(inputs=x)
+    #     input_dict: dict = context.get_input()
 
-        #     outputs.append(result)
+    #     if (isinstance(input_dict, list)):
+    #         input_dict = {"query": input_dict}
 
-        output_coros = [self._chain.acall(inputs=x) for x in input_list]
+    #     # Transform from dict[str, list[Any]] to list[dict[str, Any]]
+    #     input_list = [dict(zip(input_dict, t)) for t in zip(*input_dict.values())]
 
-        outputs = await asyncio.gather(*output_coros)
+    #     # outputs = []
 
-        # Uncomment to run synchronously
-        # results = [self._chain(inputs=x) for x in input_list]
+    #     # for x in input_list:
+    #     #     result = await self._chain.acall(inputs=x)
 
-        # Extract the results from the output
-        results = [x["result"] for x in outputs]
+    #     #     outputs.append(result)
 
-        context.set_output(results)
+    #     output_coros = [self._chain.acall(inputs=x) for x in input_list]
+
+    #     outputs = await asyncio.gather(*output_coros)
+
+    #     # Uncomment to run synchronously
+    #     # results = [self._chain(inputs=x) for x in input_list]
+
+    #     # Extract the results from the output
+    #     results = [x["result"] for x in outputs]
+
+    #     context.set_output(results)
 
 
 class SimpleTaskHandler(LLMTaskHandler):
@@ -488,6 +551,20 @@ def build_confluence_langchain():
     return qa
 
 
+def build_simple_langchain():
+    from langchain.chains import LLMChain
+    from langchain.llms import OpenAI
+    from langchain.prompts import PromptTemplate
+
+    template = """Question: {question}
+
+    Answer: Let's think step by step."""
+    prompt = PromptTemplate(template=template, input_variables=["question"])
+    llm_chain = LLMChain(prompt=prompt, llm=OpenAI(temperature=0), verbose=True)
+
+    return llm_chain
+
+
 async def seed_vdb():
 
     loader = ConfluenceLoader(
@@ -552,8 +629,8 @@ async def seed_vdb_pipeline():
 
     pipeline = LinearPipeline(c)
 
-    # pipeline.set_source(ConfluenceSource(c))
-    pipeline.set_source(ArxivSource(c))
+    pipeline.set_source(ConfluenceSource(c))
+    # pipeline.set_source(ArxivSource(c))
 
     pipeline.add_stage(MonitorStage(c, description="Downloading and processing pages", determine_count_fn=len))
 
@@ -566,7 +643,7 @@ async def seed_vdb_pipeline():
 
 async def run_rag_pipeline():
 
-    seed_db = True
+    seed_db = False
 
     if (seed_db):
         await seed_vdb_pipeline()
@@ -574,31 +651,33 @@ async def run_rag_pipeline():
         return
 
     # chain = build_langchain()
-    chain = build_confluence_langchain()
+    # chain = build_confluence_langchain()
+
+    chain = build_simple_langchain()
 
     # Test run the chain if needed
     # result = await chain.acall(inputs={"query": "What was the GAAP gross margin compared to last year?"})
 
     # Create the NeMo LLM Service using our API key and org ID
     # llm = NeMoLangChain(model_name="llama-2-70b-hf")
-    llm = NeMoLangChain(model_name="gpt-43b-002")
+    # llm = NeMoLangChain(model_name="gpt-43b-002")
     # llm = OpenAI(temperature=0)
-    # engine = LLMEngine()
+    engine = LLMEngine()
 
-    # engine.add_node("extract_prompt", [], ExtracterNode())
-    # engine.add_node("langchain", [("query", "/extract_prompt")], LangChainChainNode(chain=chain))
+    engine.add_node("extract_prompt", [], ExtracterNode())
+    engine.add_node("langchain", [("question", "/extract_prompt")], LangChainChainNode(chain=chain))
 
     # # Add our task handler
-    # engine.add_task_handler(inputs=["/langchain"], handler=SimpleTaskHandler())
+    engine.add_task_handler(inputs=["/langchain"], handler=SimpleTaskHandler())
 
-    # # Create a control message with a single task which uses the LangChain agent executor
-    # message = ControlMessage()
+    # Create a control message with a single task which uses the LangChain agent executor
+    message = ControlMessage()
 
-    # message.add_task("llm_engine",
-    #                  {
-    #                      "task_type": "template",
-    #                      "task_dict": LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict(),
-    #                  })
+    message.add_task("llm_engine",
+                     {
+                         "task_type": "template",
+                         "task_dict": LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict(),
+                     })
 
     questions = [
         "Why is a Security Incident Escalation Test performed?",
@@ -608,17 +687,17 @@ async def run_rag_pipeline():
         "What is the nSpect health grade?"
     ]
 
-    # payload = cudf.DataFrame({
-    #     "input": questions,
-    # })
-    # message.payload(MessageMeta(payload))
+    payload = cudf.DataFrame({
+        "input": questions,
+    })
+    message.payload(MessageMeta(payload))
 
     # Finally, run the engine
-    # result = await engine.run(message)
+    result = await engine.run(message)
 
-    coros = [chain.acall(inputs=x) for x in questions]
+    # coros = [chain.acall(inputs=x) for x in questions]
 
-    result = await asyncio.gather(*coros)
+    # result = await asyncio.gather(*coros)
 
     # result = [chain(inputs=x) for x in questions]
 

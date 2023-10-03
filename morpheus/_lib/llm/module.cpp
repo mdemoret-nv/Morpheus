@@ -812,6 +812,34 @@ class PyLLMEngine : public PyLLMNode<llm::LLMEngine>
     std::map<std::shared_ptr<llm::LLMTaskHandler>, py::object> m_py_task_handler;
 };
 
+class LangChainTemplateNodeCpp : public llm::LLMNodeBase
+{
+  public:
+    LangChainTemplateNodeCpp(std::string template_str) : m_template(std::move(template_str)) {}
+
+    const std::string& get_template() const
+    {
+        return m_template;
+    }
+
+    Task<std::shared_ptr<llm::LLMContext>> execute(std::shared_ptr<llm::LLMContext> context) override
+    {
+        auto input_dict = context->get_input();
+
+        if (input_dict.is_array())
+        {
+            input_dict = {{"question", input_dict}};
+        }
+
+        context->set_output(input_dict);
+
+        co_return context;
+    }
+
+  private:
+    std::string m_template;
+};
+
 PYBIND11_MODULE(llm, _module)
 {
     _module.doc() = R"pbdoc(
@@ -1256,6 +1284,28 @@ PYBIND11_MODULE(llm, _module)
 
     //     return std::make_shared<CoroAwaitable>(std::move(convert));
     // });
+
+    py::class_<LangChainTemplateNodeCpp, llm::LLMNodeBase, std::shared_ptr<LangChainTemplateNodeCpp>>(
+        _module, "LangChainTemplateNodeCpp")
+        .def(py::init<>([](std::string template_str) {
+                 return std::make_shared<LangChainTemplateNodeCpp>(std::move(template_str));
+             }),
+             py::arg("template"))
+        .def_property_readonly("template",
+                               [](LangChainTemplateNodeCpp& self) {
+                                   //
+                                   return self.get_template();
+                               })
+        .def("execute", [](std::shared_ptr<LangChainTemplateNodeCpp> self, std::shared_ptr<llm::LLMContext> context) {
+            auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
+                auto result = co_await self->execute(context);
+
+                // Convert the output to a python object
+                co_return py::cast(result);
+            };
+
+            return std::make_shared<CoroAwaitable>(convert(context));
+        });
 
     _module.attr("__version__") =
         MRC_CONCAT_STR(morpheus_VERSION_MAJOR << "." << morpheus_VERSION_MINOR << "." << morpheus_VERSION_PATCH);
