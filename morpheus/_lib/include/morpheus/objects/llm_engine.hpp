@@ -77,6 +77,8 @@ struct LLMContextState
     LLMTask task;
     std::shared_ptr<ControlMessage> message;
     nlohmann::json outputs;
+
+    // std::map<std::string, std::unique_ptr<cudf::column>> outputs_columns;
 };
 
 class LLMContext : public std::enable_shared_from_this<LLMContext>
@@ -184,6 +186,22 @@ class LLMContext : public std::enable_shared_from_this<LLMContext>
         std::string full_name = this->full_name() + "." + output_name;
 
         m_state->outputs[full_name] = std::move(outputs);
+
+        // std::vector<int32_t> test(outputs.size(), 0);
+
+        // //           using RepType        = typename ElementTo::rep;
+        // //   auto transformer     = fixed_width_type_converter<ElementFrom, RepType>{};
+        // //   auto transform_begin = thrust::make_transform_iterator(begin, transformer);
+        // //   auto const size      = cudf::distance(begin, end);
+        // auto const elements = thrust::host_vector<int32_t>(test.begin(), test.end());
+        // auto device_buff =
+        //     rmm::device_buffer{elements.data(), test.size() * sizeof(int32_t), cudf::get_default_stream()};
+
+        // // Create a cudf column
+        // auto new_column = std::make_unique<cudf::column>(
+        //     cudf::data_type{cudf::type_id::INT32}, outputs.size(), std::move(device_buff), rmm::device_buffer{}, 0);
+
+        // m_state->outputs_columns[full_name] = std::move(new_column);
     }
 
     void outputs_complete()

@@ -3,6 +3,7 @@ import functools
 import logging
 import os
 import textwrap
+import time
 import typing
 from typing import Any
 from typing import Coroutine
@@ -35,6 +36,7 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.text_splitter import TokenTextSplitter
 from langchain.vectorstores import Milvus
+from pypdf.errors import PdfStreamError
 
 import cudf
 
@@ -56,10 +58,11 @@ from morpheus.stages.general.monitor_stage import MonitorStage
 from .common import ExtracterNode
 from .common import LLMDictTask
 from .llm_engine import NeMoLangChain
+from .logging_timer import log_time
 
 logger = logging.getLogger(f"morpheus.{__name__}")
 
-MILVUS_COLLECTION_NAME = "Test2"
+MILVUS_COLLECTION_NAME = "Test"
 
 
 class ConfluenceSource(SingleOutputSource):
@@ -151,13 +154,117 @@ class ConfluenceSource(SingleOutputSource):
         return texts
 
 
+class ArxivSource(SingleOutputSource):
+
+    def __init__(self, c: Config):
+
+        super().__init__(c)
+
+        self._max_pages = 10000
+
+        self._loader = ConfluenceLoader(
+            url="https://confluence.nvidia.com",
+            token=os.environ.get("CONFLUENCE_API_KEY", None),
+        )
+
+        # self._text_splitter1 = CharacterTextSplitter(chunk_size=500, chunk_overlap=0)
+        self._text_splitter2 = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, length_function=len)
+
+        self._total_pdfs = 0
+        self._total_pages = 0
+        self._total_chunks = 0
+
+    @property
+    def name(self) -> str:
+        """Return the name of the stage"""
+        return "from-confluence"
+
+    def supports_cpp_node(self) -> bool:
+        """Indicates whether or not this stage supports a C++ node"""
+        return False
+
+    def _build_source(self, builder: mrc.Builder) -> StreamPair:
+
+        download_pages = builder.make_source(self.unique_name + "-download", self._generate_frames())
+
+        process_pages = builder.make_node(self.unique_name + "-process", ops.map(self._process_pages))
+        process_pages.launch_options.pe_count = 6
+
+        builder.make_edge(download_pages, process_pages)
+
+        splitting_pages = builder.make_node(self.unique_name + "-split", ops.map(self._splitting_pages))
+        # splitting_pages.launch_options.pe_count = 4
+
+        builder.make_edge(process_pages, splitting_pages)
+
+        out_type = typing.List[Document]
+
+        return splitting_pages, out_type
+
+    def _generate_frames(self):
+
+        import arxiv
+
+        search_results = arxiv.Search(
+            query="large language models",
+            max_results=50,
+        )
+
+        dir_path = "./shared-dir/dataset/pdfs/"
+
+        for x in search_results.results():
+
+            full_path = os.path.join(dir_path, x._get_default_filename())
+
+            if (not os.path.exists(full_path)):
+                x.download_pdf(dir_path)
+                logger.debug(f"Downloaded: {full_path}")
+                # time.sleep(0.1)
+
+            yield full_path
+
+            self._total_pdfs += 1
+
+        logger.debug(f"Downloading complete {self._total_pdfs} pages")
+
+    def _process_pages(self, pdf_path: str):
+
+        from langchain.document_loaders import PyPDFLoader
+
+        for _ in range(5):
+            try:
+                loader = PyPDFLoader(pdf_path)
+                documents = loader.load()
+
+                self._total_pages += len(documents)
+
+                logger.debug(f"Processing {len(documents)}/{self._total_pages}: {pdf_path}")
+
+                return documents
+            except PdfStreamError:
+                logger.error(f"Failed to load PDF (retrying): {pdf_path}")
+                documents = []
+
+        raise RuntimeError(f"Failed to load PDF: {pdf_path}")
+
+    def _splitting_pages(self, documents: list[Document]):
+
+        # texts1 = self._text_splitter1.split_documents(documents)
+        texts = self._text_splitter2.split_documents(documents)
+
+        self._total_chunks += len(texts)
+
+        return texts
+
+
 class WriteToMilvus(SinglePortStage):
 
     def __init__(self, c: Config):
 
         super().__init__(c)
 
-        self._embeddings = get_hf_embeddings("intfloat/e5-large-v2")
+        # self._embeddings = get_hf_embeddings("intfloat/e5-large-v2")
+        self._embeddings = get_hf_embeddings("sentence-transformers/all-mpnet-base-v2")
         self._vdb = getVDB("Milvus", embeddings=self._embeddings, collection_name=MILVUS_COLLECTION_NAME)
 
     @property
@@ -183,15 +290,30 @@ class WriteToMilvus(SinglePortStage):
 
     def _build_single(self, builder: mrc.Builder, input_stream: StreamPair) -> StreamPair:
 
-        node = builder.make_node(self.unique_name, ops.map(self._add_documents))
+        def node_fn(obs: mrc.Observable, sub: mrc.Subscriber):
+            print("Creating embeddings")
+            # Create embedding per thread
+            embeddings = get_hf_embeddings("sentence-transformers/all-mpnet-base-v2")
+            vdb = getVDB("Milvus", embeddings=embeddings, collection_name=MILVUS_COLLECTION_NAME)
+
+            obs.pipe(ops.map(functools.partial(self._add_documents, vdb=vdb))).subscribe(sub)
+
+        node = builder.make_node(self.unique_name, ops.build(node_fn))
+        node.launch_options.pe_count = 1
 
         builder.make_edge(input_stream[0], node)
 
         return node, input_stream[1]
 
-    def _add_documents(self, documents: list[Document]):
+    def _add_documents(self, documents: list[Document], vdb: Milvus):
 
-        self._vdb.add_documents(documents)
+        total_chars = sum([len(x.page_content) for x in documents])
+
+        with log_time(msg=f"Writing {len(documents)} documents to VDB took {{duration}}. {{rate_per_sec}} chars/sec",
+                      count=total_chars,
+                      log_fn=logger.debug):
+
+            vdb.add_documents(documents)
 
         return documents
 
@@ -265,7 +387,10 @@ class SimpleTaskHandler(LLMTaskHandler):
 def get_hf_embeddings(model):
 
     model_kwargs = {'device': 'cuda'}
-    encode_kwargs = {'normalize_embeddings': True}  # set True to compute cosine similarity
+    encode_kwargs = {
+        # 'normalize_embeddings': True, # set True to compute cosine similarity
+        "batch_size": 100,
+    }
 
     embeddings = HuggingFaceEmbeddings(model_name=model, model_kwargs=model_kwargs, encode_kwargs=encode_kwargs)
 
@@ -281,6 +406,7 @@ def getVDB(db_name, *, embeddings, collection_name, host="localhost", port="1953
         print("FAISS")
         vectordb = FAISS.load_local("vdb_chunks", embeddings, index_name="nv-index")
     elif db_name == 'Milvus':
+
         # Get existing collection from Milvus
         vectordb: Milvus = Milvus(
             embedding_function=embeddings,
@@ -288,6 +414,7 @@ def getVDB(db_name, *, embeddings, collection_name, host="localhost", port="1953
             connection_args={
                 "host": host, "port": port
             },
+            drop_old=True,
         )
         return vectordb
 
@@ -336,6 +463,8 @@ def build_langchain():
                                            retriever=retriever,
                                            return_source_documents=True,
                                            chain_type_kwargs={"prompt": QA_CHAIN_PROMPT})
+
+    print(qa_chain.dict())
 
     return qa_chain
 
@@ -423,7 +552,8 @@ async def seed_vdb_pipeline():
 
     pipeline = LinearPipeline(c)
 
-    pipeline.set_source(ConfluenceSource(c))
+    # pipeline.set_source(ConfluenceSource(c))
+    pipeline.set_source(ArxivSource(c))
 
     pipeline.add_stage(MonitorStage(c, description="Downloading and processing pages", determine_count_fn=len))
 
@@ -436,7 +566,7 @@ async def seed_vdb_pipeline():
 
 async def run_rag_pipeline():
 
-    seed_db = False
+    seed_db = True
 
     if (seed_db):
         await seed_vdb_pipeline()
@@ -453,22 +583,22 @@ async def run_rag_pipeline():
     # llm = NeMoLangChain(model_name="llama-2-70b-hf")
     llm = NeMoLangChain(model_name="gpt-43b-002")
     # llm = OpenAI(temperature=0)
-    engine = LLMEngine()
+    # engine = LLMEngine()
 
-    engine.add_node("extract_prompt", [], ExtracterNode())
-    engine.add_node("langchain", [("query", "/extract_prompt")], LangChainChainNode(chain=chain))
+    # engine.add_node("extract_prompt", [], ExtracterNode())
+    # engine.add_node("langchain", [("query", "/extract_prompt")], LangChainChainNode(chain=chain))
 
-    # Add our task handler
-    engine.add_task_handler(inputs=["/langchain"], handler=SimpleTaskHandler())
+    # # Add our task handler
+    # engine.add_task_handler(inputs=["/langchain"], handler=SimpleTaskHandler())
 
-    # Create a control message with a single task which uses the LangChain agent executor
-    message = ControlMessage()
+    # # Create a control message with a single task which uses the LangChain agent executor
+    # message = ControlMessage()
 
-    message.add_task("llm_engine",
-                     {
-                         "task_type": "template",
-                         "task_dict": LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict(),
-                     })
+    # message.add_task("llm_engine",
+    #                  {
+    #                      "task_type": "template",
+    #                      "task_dict": LLMDictTask(input_keys=["input"], model_name="gpt-43b-002").dict(),
+    #                  })
 
     questions = [
         "Why is a Security Incident Escalation Test performed?",
@@ -478,17 +608,17 @@ async def run_rag_pipeline():
         "What is the nSpect health grade?"
     ]
 
-    payload = cudf.DataFrame({
-        "input": questions,
-    })
-    message.payload(MessageMeta(payload))
+    # payload = cudf.DataFrame({
+    #     "input": questions,
+    # })
+    # message.payload(MessageMeta(payload))
 
     # Finally, run the engine
-    result = await engine.run(message)
+    # result = await engine.run(message)
 
-    # coros = [chain.acall(inputs=x) for x in questions]
+    coros = [chain.acall(inputs=x) for x in questions]
 
-    # result = await asyncio.gather(*coros)
+    result = await asyncio.gather(*coros)
 
     # result = [chain(inputs=x) for x in questions]
 
