@@ -243,7 +243,7 @@ class Pipeline():
 
             # Check if preallocated columns are requested, this needs to happen before the source stages are built
             needed_columns = OrderedDict()
-            for stage in networkx.topological_sort(segment_graph):
+            for stage in segment_graph.nodes():
                 needed_columns.update(stage.get_needed_columns())
 
             if (len(needed_columns) > 0):
@@ -253,7 +253,10 @@ class Pipeline():
 
             # This should be a BFS search from each source nodes; but, since we don't have source stage loops
             # topo_sort provides a reasonable approximation.
-            for stage in networkx.topological_sort(segment_graph):
+            for stage in segment_graph.nodes():
+                if len(typing.cast(StreamWrapper, stage).input_ports) > 0:
+                    continue
+
                 if (stage.can_build()):
                     stage.build(builder)
 
@@ -262,7 +265,7 @@ class Pipeline():
 
                 for stage in segment_graph.nodes():
                     if (stage.can_build(check_ports=True)):
-                        stage.build()
+                        stage.build(builder)
 
             if (not all(x.is_built for x in segment_graph.nodes())):
                 raise RuntimeError("Could not build pipeline. Ensure all types can be determined")
