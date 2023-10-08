@@ -83,7 +83,7 @@ morpheus_add_pybind11_module(messages SOURCE_FILES messages/module.cpp)
 morpheus_add_pybind11_module(modules SOURCE_FILES modules/module.cpp)
 
 #----------morpheus._lib.llm---------
-morpheus_add_pybind11_module(llm SOURCE_FILES llm/module.cpp)
+morpheus_add_pybind11_module(llm SOURCE_FILES llm/module.cpp LINK_TARGETS morpheus jsoncons)
 
 #----------morpheus._lib.doca---------
 if(MORPHEUS_SUPPORT_DOCA)

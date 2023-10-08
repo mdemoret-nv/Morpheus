@@ -50,6 +50,7 @@ implicit_optional = true
 [tool.pyright]
 # Allow None for argument default values
 strictParameterNoneValue = false
+reportOptionalMemberAccess = "warning"
 
 
 [tool.interrogate]

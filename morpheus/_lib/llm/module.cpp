@@ -28,6 +28,7 @@
 #include <mrc/types.hpp>
 #include <mrc/utils/string_utils.hpp>
 #include <pybind11/attr.h>  // for multiple_inheritance
+#include <pybind11/cast.h>
 #include <pybind11/detail/common.h>
 #include <pybind11/functional.h>
 #include <pybind11/gil.h>
@@ -432,6 +433,11 @@ class PyLLMTaskHandler : public llm::LLMTaskHandler
   public:
     using llm::LLMTaskHandler::LLMTaskHandler;
 
+    std::vector<std::string> get_input_names() const override
+    {
+        PYBIND11_OVERRIDE_PURE(std::vector<std::string>, llm::LLMTaskHandler, get_input_names);
+    }
+
     Task<llm::LLMTaskHandler::return_t> try_handle(std::shared_ptr<llm::LLMContext> context) override
     {
         using return_t = llm::LLMTaskHandler::return_t;
@@ -513,6 +519,40 @@ class PyLLMNodeBase : public BaseT
     //     return llm::LLMNode::add_node(name, input_names, node);
     // }
 
+    std::vector<std::string> get_input_names() const override
+    {
+        // Call the python overridden function
+
+        pybind11 ::gil_scoped_acquire gil;
+        pybind11 ::function override = pybind11 ::get_override(static_cast<const BaseT*>(this), "get_input_names");
+
+        if (override)
+        {
+            auto o = override();
+            if (pybind11 ::detail ::cast_is_temporary_value_reference<std ::vector<std ::string>>::value)
+            {
+                static pybind11 ::detail ::override_caster_t<std ::vector<std ::string>> caster;
+                return pybind11 ::detail ::cast_ref<std ::vector<std ::string>>(std ::move(o), caster);
+            }
+            return pybind11 ::detail ::cast_safe<std ::vector<std ::string>>(std ::move(o));
+        }
+
+        if constexpr (std::is_same_v<BaseT, llm::LLMNodeBase>)
+        {
+            // Cant call the base class implementation on abstract class
+            pybind11::pybind11_fail(
+                "Tried to call pure virtual function \""
+                "llm::LLMNodeBase"
+                "::"
+                "get_input_names"
+                "\"");
+        }
+        else
+        {
+            return BaseT::get_input_names();
+        }
+    }
+
     Task<std::shared_ptr<llm::LLMContext>> execute(std::shared_ptr<llm::LLMContext> context) override
     {
         using return_t = std::shared_ptr<llm::LLMContext>;
@@ -578,7 +618,8 @@ class PyLLMNode : public PyLLMNodeBase<BaseT>
 
     std::shared_ptr<llm::LLMNodeRunner> add_node(std::string name,
                                                  llm::input_map_t inputs,
-                                                 std::shared_ptr<llm::LLMNodeBase> node) override
+                                                 std::shared_ptr<llm::LLMNodeBase> node,
+                                                 bool is_output = false) override
     {
         // // Try to cast the object to a python object to ensure that we keep it alive
         // auto py_node = std::dynamic_pointer_cast<PyLLMNodeBase>(node);
@@ -590,7 +631,7 @@ class PyLLMNode : public PyLLMNodeBase<BaseT>
         // }
 
         // Call the base class implementation
-        return llm::LLMNode::add_node(std::move(name), std::move(inputs), std::move(node));
+        return llm::LLMNode::add_node(std::move(name), std::move(inputs), std::move(node), is_output);
     }
 
     // void execute(std::shared_ptr<llm::LLMContext> context) override
@@ -822,6 +863,11 @@ class LangChainTemplateNodeCpp : public llm::LLMNodeBase
         return m_template;
     }
 
+    std::vector<std::string> get_input_names() const override
+    {
+        return {"question"};
+    }
+
     Task<std::shared_ptr<llm::LLMContext>> execute(std::shared_ptr<llm::LLMContext> context) override
     {
         auto input_dict = context->get_input();
@@ -858,6 +904,11 @@ PYBIND11_MODULE(llm, _module)
         .def("__iter__", &CoroAwaitable::iter)
         .def("__await__", &CoroAwaitable::await)
         .def("__next__", &CoroAwaitable::next);
+
+    py::class_<llm::InputMap>(_module, "InputMap")
+        .def(py::init<>())
+        .def_readwrite("input_name", &llm::InputMap::input_name)
+        .def_readwrite("node_name", &llm::InputMap::node_name);
 
     py::class_<llm::LLMTask>(_module, "LLMTask")
         .def(py::init<>())
@@ -922,32 +973,68 @@ PYBIND11_MODULE(llm, _module)
         .def_readwrite("model_name", &llm::LLMGeneratePrompt::model_name)
         .def_property(
             "model_kwargs",
-            [](llm::LLMGeneratePrompt& self) { return mrc::pymrc::cast_from_json(self.model_kwargs); },
+            [](llm::LLMGeneratePrompt& self) {
+                return mrc::pymrc::cast_from_json(self.model_kwargs);
+            },
             [](llm::LLMGeneratePrompt& self, py::dict model_kwargs) {
                 self.model_kwargs = mrc::pymrc::cast_from_pyobject(model_kwargs);
             })
         .def_readwrite("prompts", &llm::LLMGeneratePrompt::prompts);
 
     py::class_<llm::LLMGenerateResult, llm::LLMGeneratePrompt>(_module, "LLMGenerateResult")
-        .def(py::init([]() { return llm::LLMGenerateResult(); }))
+        .def(py::init([]() {
+            return llm::LLMGenerateResult();
+        }))
         .def(py::init([](llm::LLMGeneratePrompt& other, std::vector<std::string> responses) {
             return llm::LLMGenerateResult(other, std::move(responses));
         }))
         .def_readwrite("responses", &llm::LLMGenerateResult::responses);
 
     py::class_<llm::LLMContext, std::shared_ptr<llm::LLMContext>>(_module, "LLMContext")
-        .def_property_readonly("name", [](llm::LLMContext& self) { return self.name(); })
-        .def_property_readonly("full_name", [](llm::LLMContext& self) { return self.full_name(); })
+        .def_property_readonly("name",
+                               [](llm::LLMContext& self) {
+                                   return self.name();
+                               })
+        .def_property_readonly("full_name",
+                               [](llm::LLMContext& self) {
+                                   return self.full_name();
+                               })
         .def_property_readonly("all_outputs",
                                [](llm::LLMContext& self) {
                                    return mrc::pymrc::cast_from_json(self.all_outputs());
                                })  // Remove all_outputs before release!
-        .def("task", [](llm::LLMContext& self) { return self.task(); })
-        .def("message", [](llm::LLMContext& self) { return self.message(); })
+        .def_property_readonly("input_map",
+                               [](llm::LLMContext& self) {
+                                   //
+                                   return self.input_map();
+                               })
+        .def_property_readonly("parent",
+                               [](llm::LLMContext& self) {
+                                   //
+                                   return self.parent();
+                               })
+        .def("task",
+             [](llm::LLMContext& self) {
+                 return self.task();
+             })
+        .def("message",
+             [](llm::LLMContext& self) {
+                 return self.message();
+             })
         .def("get_input",
              [](llm::LLMContext& self) {
                  // Convert the return value
                  return mrc::pymrc::cast_from_json(self.get_input());
+             })
+        .def("get_input",
+             [](llm::LLMContext& self, std::string key) {
+                 // Convert the return value
+                 return mrc::pymrc::cast_from_json(self.get_input(key));
+             })
+        .def("get_inputs",
+             [](llm::LLMContext& self) {
+                 // Convert the return value
+                 return mrc::pymrc::cast_from_json(self.get_inputs()).cast<py::dict>();
              })
         .def("set_output", [](llm::LLMContext& self, py::object value) {
             // Convert and pass to the base
@@ -985,30 +1072,51 @@ PYBIND11_MODULE(llm, _module)
         .def(py::init_alias<>())
         .def(
             "add_node",
+            [](llm::LLMNode& self, std::string name, std::shared_ptr<llm::LLMNodeBase> node, bool is_output) {
+                llm::input_map_t converted_inputs;
+
+                // Populate the inputs from the node input_names
+                for (const auto& single_input : node->get_input_names())
+                {
+                    converted_inputs.push_back({.input_name = single_input});
+                }
+
+                return self.add_node(std::move(name), std::move(converted_inputs), std::move(node), is_output);
+            },
+            py::arg("name"),
+            py::kw_only(),
+            py::arg("node"),
+            py::arg("is_output") = false)
+        .def(
+            "add_node",
             [](llm::LLMNode& self,
                std::string name,
                std::vector<std::variant<std::string, std::pair<std::string, std::string>>> inputs,
-               std::shared_ptr<llm::LLMNodeBase> node) {
+               std::shared_ptr<llm::LLMNodeBase> node,
+               bool is_output) {
                 llm::input_map_t converted_inputs;
 
                 for (const auto& single_input : inputs)
                 {
                     if (std::holds_alternative<std::string>(single_input))
                     {
-                        converted_inputs.push_back(
-                            {std::get<std::string>(single_input), std::get<std::string>(single_input)});
+                        converted_inputs.push_back({.input_name = std::get<std::string>(single_input)});
                     }
                     else
                     {
-                        converted_inputs.push_back(std::get<std::pair<std::string, std::string>>(single_input));
+                        auto pair = std::get<std::pair<std::string, std::string>>(single_input);
+
+                        converted_inputs.push_back({.input_name = pair.first, .node_name = pair.second});
                     }
                 }
 
-                return self.add_node(std::move(name), std::move(converted_inputs), std::move(node));
+                return self.add_node(std::move(name), std::move(converted_inputs), std::move(node), is_output);
             },
             py::arg("name"),
+            py::kw_only(),
             py::arg("inputs"),
-            py::arg("node"));
+            py::arg("node"),
+            py::arg("is_output") = false);
     // .def("execute", [](std::shared_ptr<llm::LLMNode> self, std::shared_ptr<llm::LLMContext> context) {
     //     auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
     //         auto result = co_await self->execute(context);
@@ -1074,12 +1182,13 @@ PYBIND11_MODULE(llm, _module)
                 {
                     if (std::holds_alternative<std::string>(single_input))
                     {
-                        converted_inputs.push_back(
-                            {std::get<std::string>(single_input), std::get<std::string>(single_input)});
+                        converted_inputs.push_back({.input_name = std::get<std::string>(single_input)});
                     }
                     else
                     {
-                        converted_inputs.push_back(std::get<std::pair<std::string, std::string>>(single_input));
+                        auto pair = std::get<std::pair<std::string, std::string>>(single_input);
+
+                        converted_inputs.push_back({.input_name = pair.first, .node_name = pair.second});
                     }
                 }
 
@@ -1296,6 +1405,7 @@ PYBIND11_MODULE(llm, _module)
                                    //
                                    return self.get_template();
                                })
+        .def("get_input_names", &LangChainTemplateNodeCpp::get_input_names)
         .def("execute", [](std::shared_ptr<LangChainTemplateNodeCpp> self, std::shared_ptr<llm::LLMContext> context) {
             auto convert = [self](std::shared_ptr<llm::LLMContext> context) -> Task<mrc::pymrc::PyHolder> {
                 auto result = co_await self->execute(context);

@@ -87,4 +87,8 @@ morpheus_utils_configure_cudf()
 # =====
 morpheus_utils_configure_tritonclient()
 
+# JSON Cons
+# =====
+morpheus_utils_configure_jsoncons()
+
 list(POP_BACK CMAKE_MESSAGE_CONTEXT)

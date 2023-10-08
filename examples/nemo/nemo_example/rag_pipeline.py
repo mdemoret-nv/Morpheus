@@ -567,10 +567,29 @@ def build_simple_langchain():
 
 async def seed_vdb():
 
-    loader = ConfluenceLoader(
-        url="https://confluence.nvidia.com",
-        token=os.environ.get("CONFLUENCE_API_KEY", None),
-    )
+    with log_time(msg="Loading documents took {duration}. {rate_per_sec} docs/sec", log_fn=logger.debug) as l:
+
+        loader = ConfluenceLoader(
+            url="https://confluence.nvidia.com",
+            token=os.environ.get("CONFLUENCE_API_KEY", None),
+        )
+
+        documents = loader.load(space_key="PRODSEC", max_pages=2000)
+
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20, length_function=len)
+
+        documents = text_splitter.split_documents(documents)
+
+        l.count = len(documents)
+
+        print(f"Loaded {len(documents)} documents")
+
+        Milvus.from_documents(documents,
+                              get_hf_embeddings("sentence-transformers/all-mpnet-base-v2"),
+                              collection_name=MILVUS_COLLECTION_NAME,
+                              drop_old=True)
+
+    return
 
     async def download_pages():
 
@@ -643,10 +662,11 @@ async def seed_vdb_pipeline():
 
 async def run_rag_pipeline():
 
-    seed_db = False
+    seed_db = True
 
     if (seed_db):
-        await seed_vdb_pipeline()
+        # await seed_vdb_pipeline()
+        await seed_vdb()
 
         return
 
@@ -664,8 +684,11 @@ async def run_rag_pipeline():
     # llm = OpenAI(temperature=0)
     engine = LLMEngine()
 
-    engine.add_node("extract_prompt", [], ExtracterNode())
-    engine.add_node("langchain", [("question", "/extract_prompt")], LangChainChainNode(chain=chain))
+    engine.add_node("my_function", fn=seed_vdb_pipeline)
+    engine.add_node("extract_prompt", node=ExtracterNode())
+    engine.add_node("langchain",
+                    inputs=[("/extract_prompt/name1", "other_name"), ("/extract_prompt/name2, other_name2")],
+                    node=LangChainChainNode(chain=chain))
 
     # # Add our task handler
     engine.add_task_handler(inputs=["/langchain"], handler=SimpleTaskHandler())

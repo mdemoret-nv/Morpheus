@@ -12,6 +12,7 @@ import morpheus._lib.messages
 
 __all__ = [
     "CoroAwaitable",
+    "InputMap",
     "LLMContext",
     "LLMEngine",
     "LLMGeneratePrompt",
@@ -33,8 +34,31 @@ class CoroAwaitable():
     def __iter__(self) -> CoroAwaitable: ...
     def __next__(self) -> None: ...
     pass
+class InputMap():
+    def __init__(self) -> None: ...
+    @property
+    def input_name(self) -> str:
+        """
+        :type: str
+        """
+    @input_name.setter
+    def input_name(self, arg0: str) -> None:
+        pass
+    @property
+    def node_name(self) -> str:
+        """
+        :type: str
+        """
+    @node_name.setter
+    def node_name(self, arg0: str) -> None:
+        pass
+    pass
 class LLMContext():
+    @typing.overload
     def get_input(self) -> object: ...
+    @typing.overload
+    def get_input(self, arg0: str) -> object: ...
+    def get_inputs(self) -> dict: ...
     def message(self) -> morpheus._lib.messages.ControlMessage: ...
     def set_output(self, arg0: object) -> None: ...
     def task(self) -> LLMTask: ...
@@ -49,9 +73,19 @@ class LLMContext():
         :type: str
         """
     @property
+    def input_map(self) -> typing.List[InputMap]:
+        """
+        :type: typing.List[InputMap]
+        """
+    @property
     def name(self) -> str:
         """
         :type: str
+        """
+    @property
+    def parent(self) -> LLMContext:
+        """
+        :type: LLMContext
         """
     pass
 class LLMNodeBase():
@@ -104,7 +138,10 @@ class LLMGenerateResult(LLMGeneratePrompt):
     pass
 class LLMNode(LLMNodeBase):
     def __init__(self) -> None: ...
-    def add_node(self, name: str, inputs: typing.List[typing.Union[str, typing.Tuple[str, str]]], node: LLMNodeBase) -> LLMNodeRunner: ...
+    @typing.overload
+    def add_node(self, name: str, *, inputs: typing.List[typing.Union[str, typing.Tuple[str, str]]], node: LLMNodeBase, is_output: bool = False) -> LLMNodeRunner: ...
+    @typing.overload
+    def add_node(self, name: str, *, node: LLMNodeBase, is_output: bool = False) -> LLMNodeRunner: ...
     pass
 class LLMEngine(LLMNode, LLMNodeBase):
     def __init__(self) -> None: ...
@@ -117,9 +154,9 @@ class LLMEngine(LLMNode, LLMNodeBase):
     pass
 class LLMNodeRunner():
     @property
-    def inputs(self) -> typing.List[typing.Tuple[str, str]]:
+    def inputs(self) -> typing.List[InputMap]:
         """
-        :type: typing.List[typing.Tuple[str, str]]
+        :type: typing.List[InputMap]
         """
     @property
     def name(self) -> str:
@@ -157,6 +194,7 @@ class LLMTaskHandler():
 class LangChainTemplateNodeCpp(LLMNodeBase):
     def __init__(self, template: str) -> None: ...
     def execute(self, arg0: LLMContext) -> CoroAwaitable: ...
+    def get_input_names(self) -> typing.List[str]: ...
     @property
     def template(self) -> str:
         """

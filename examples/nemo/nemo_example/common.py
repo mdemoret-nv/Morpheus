@@ -44,6 +44,9 @@ class ExtracterNode(LLMNodeBase):
     def __init__(self) -> None:
         super().__init__()
 
+    def get_input_names(self) -> list[str]:
+        return []
+
     async def execute(self, context: LLMContext):
 
         # Get the keys from the task
@@ -57,6 +60,37 @@ class ExtracterNode(LLMNodeBase):
             context.set_output(input_dict[input_keys[0]])
         else:
             context.set_output(input_dict)
+
+        return context
+
+
+class FunctionWrapperNode(LLMNodeBase):
+
+    def __init__(self, node_fn: typing.Callable) -> None:
+        super().__init__()
+
+        self._node_fn = node_fn
+
+        import inspect
+
+        sig = inspect.signature(node_fn)
+
+        self._input_names = []
+
+        for name, param in sig.parameters.items():
+            if (param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD or param.kind == inspect.Parameter.KEYWORD_ONLY):
+                self._input_names.append(name)
+
+    def get_input_names(self):
+        return self._input_names
+
+    async def execute(self, context: LLMContext):
+
+        inputs = context.get_inputs()
+
+        result = await self._node_fn(**inputs)
+
+        context.set_output(result)
 
         return context
 

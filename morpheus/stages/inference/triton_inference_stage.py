@@ -464,6 +464,9 @@ class _TritonInferenceWorker(InferenceWorker):
         self._inputs: typing.Dict[str, TritonInOut] = {}
         self._outputs: typing.Dict[str, TritonInOut] = {}
 
+        # The output name that is mapped to the name 'probs'
+        self._probs_output_name = None
+
         self._triton_client: tritonclient.InferenceServerClient = None
         self._mem_pool: ResourcePool = None
 
@@ -502,10 +505,12 @@ class _TritonInferenceWorker(InferenceWorker):
             model_meta = self._triton_client.get_model_metadata(self._model_name, as_json=True)
             model_config = self._triton_client.get_model_config(self._model_name, as_json=True)["config"]
 
+            model_fea_length = int(model_meta["inputs"][0]["shape"][-1])
+
             # Make sure the inputs/outputs match our config
-            if (int(model_meta["inputs"][0]["shape"][-1]) != self._fea_length):
+            if (model_fea_length != -1 and model_fea_length != self._fea_length):
                 raise RuntimeError("Mismatched Sequence Length. Config specified {} but model specified {}".format(
-                    self._fea_length, int(model_meta["inputs"][0]["shape"][-1])))
+                    self._fea_length, model_fea_length))
 
             # Check batch size
             if (model_config.get("max_batch_size", 0) != self._max_batch_size):
@@ -524,17 +529,18 @@ class _TritonInferenceWorker(InferenceWorker):
                              model_config["max_batch_size"], self._max_batch_size))
 
             shm_config = {}
+            max_shape = [self._max_batch_size, self._fea_length]
 
             def build_inout(x: dict):
                 b = np.dtype(triton_to_np_dtype(x["datatype"])).itemsize
 
                 shape = []
 
-                for y in x["shape"]:
-                    y_int = int(y)
+                for s, max_s in zip(x["shape"], max_shape):
+                    y_int = int(s)
 
                     if (y_int == -1):
-                        y_int = self._max_batch_size
+                        y_int = max_s
 
                     shape.append(y_int)
 
@@ -558,6 +564,11 @@ class _TritonInferenceWorker(InferenceWorker):
 
                 self._outputs[x["name"]] = build_inout(x)
 
+                if (self._outputs[x["name"]].mapped_name == "probs"):
+                    self._probs_output_name = x["name"]
+
+            assert self._probs_output_name is not None, "No output mapped to 'probs'. Must map at least one output to the name 'probs'"
+
             # Combine the inputs/outputs for the shared memory
             shm_config = {**self._inputs, **self._outputs}
 
@@ -578,7 +589,7 @@ class _TritonInferenceWorker(InferenceWorker):
             raise ex
 
     def calc_output_dims(self, x: MultiInferenceMessage) -> typing.Tuple:
-        return (x.count, self._outputs[list(self._outputs.keys())[0]].shape[1])
+        return (x.count, self._outputs[self._probs_output_name].shape[1])
 
     @abstractmethod
     def _build_response(self, batch: MultiInferenceMessage, result: tritonclient.InferResult) -> TensorMemory:
