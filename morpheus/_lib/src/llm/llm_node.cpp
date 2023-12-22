@@ -50,9 +50,10 @@ std::shared_ptr<LLMNodeRunner> LLMNode::add_node(std::string name,
     }
 
     // Get the inputs of the current node
-    auto input_names = node->get_input_names();
+    auto input_names          = node->get_input_names();
+    auto optional_input_names = node->get_optional_input_names();
 
-    auto final_inputs = process_input_names(inputs, input_names);
+    auto final_inputs = process_input_names(inputs, input_names, optional_input_names);
 
     // Check the final inputs to ensure they match existing nodes
     for (const auto& inp : final_inputs)

@@ -74,6 +74,10 @@ class RSSSourceStage(PreallocatorMixin, SingleOutputSource):
         if (batch_size is None):
             batch_size = c.pipeline_batch_size
 
+        # Ensure that we don't emit more than the stop_after limit
+        if (self._stop_after > 0):
+            batch_size = min(batch_size, self._stop_after)
+
         if (stop_after > 0):
             if (run_indefinitely):
                 raise ValueError("Cannot set both `stop_after` and `run_indefinitely` to True.")

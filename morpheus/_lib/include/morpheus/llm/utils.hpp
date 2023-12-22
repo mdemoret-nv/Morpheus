@@ -44,6 +44,7 @@ bool MORPHEUS_EXPORT is_valid_node_name(std::string_view name);
  * @return input_mappings_t
  */
 input_mappings_t MORPHEUS_EXPORT process_input_names(user_input_mappings_t user_inputs,
-                                                     const std::vector<std::string>& input_names);
+                                                     const std::vector<std::string>& input_names,
+                                                     const std::vector<std::string>& optional_input_names);
 
 }  // namespace morpheus::llm

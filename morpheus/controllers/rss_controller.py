@@ -86,7 +86,7 @@ class RSSController:
             feed_input = [feed_input]
 
         # Convert list to set to remove any duplicate feed inputs.
-        self._feed_input = set(feed_input)
+        self._feed_input = feed_input
         self._batch_size = batch_size
         self._previous_entries = set()  # Stores the IDs of previous entries to prevent the processing of duplicates.
         self._cooldown_interval = cooldown_interval

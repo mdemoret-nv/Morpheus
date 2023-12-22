@@ -35,9 +35,10 @@ namespace morpheus::llm {
 
 InputMap::InputMap() = default;
 
-InputMap::InputMap(std::string external_name, std::string internal_name) :
+InputMap::InputMap(std::string external_name, std::string internal_name, bool is_optional) :
   external_name(std::move(external_name)),
-  internal_name(std::move(internal_name))
+  internal_name(std::move(internal_name)),
+  is_optional(is_optional)
 {
     CHECK_NE(this->internal_name, "") << "Cannot have an empty internal name. Use UserInputMapping for placeholders.";
     CHECK_NE(this->internal_name, "-") << "Cannot use placeholders. Use UserInputMapping for placeholders.";

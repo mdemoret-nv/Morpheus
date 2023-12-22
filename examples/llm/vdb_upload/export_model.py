@@ -117,9 +117,14 @@ class CustomTokenizer(torch.nn.Module):
 
         model_outputs = self.inner_model(*args, **kwargs)
 
-        sentence_embeddings = self.mean_pooling(model_outputs, attention_mask)
+        if ("pooler_output" in model_outputs):
+            # No need to calculate if the model already pools the output
+            sentence_embeddings = model_outputs["pooler_output"]
+        else:
 
-        sentence_embeddings = self.normalize(sentence_embeddings)
+            sentence_embeddings = self.mean_pooling(model_outputs, attention_mask)
+
+            sentence_embeddings = self.normalize(sentence_embeddings)
 
         return sentence_embeddings
 
@@ -227,11 +232,13 @@ def build_triton_model(model_name, model_seq_length, max_batch_size, triton_repo
     config.dynamic_batching.max_queue_delay_microseconds = 50000
 
     config.optimization.execution_accelerators.gpu_execution_accelerator.extend([
-        ModelOptimizationPolicy.ExecutionAccelerators.Accelerator(name="tensorrt",
-                                                                  parameters={
-                                                                      "precision_mode": "FP16",
-                                                                      "max_workspace_size_bytes": "1073741824",
-                                                                  })
+        ModelOptimizationPolicy.ExecutionAccelerators.Accelerator(
+            name="tensorrt",
+            parameters={
+                "precision_mode": "FP16",  #   "max_workspace_size_bytes": "1073741824",
+                "trt_engine_cache_enable": "true",
+                "trt_engine_cache_path": "/models/triton-model-repo/.cache/triton",
+            })
     ])
 
     config_path = os.path.join(output_model_dir, "config.pbtxt")

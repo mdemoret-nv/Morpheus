@@ -45,6 +45,11 @@ class MORPHEUS_EXPORT LLMNodeBase
      */
     virtual std::vector<std::string> get_input_names() const = 0;
 
+    virtual std::vector<std::string> get_optional_input_names() const
+    {
+        return {};
+    }
+
     /**
      * @brief Virtual method for implementing the execution of a node.
      *

@@ -31,10 +31,11 @@ struct MORPHEUS_EXPORT InputMap
 {
     InputMap();
 
-    InputMap(std::string external_name, std::string internal_name);
+    InputMap(std::string external_name, std::string internal_name, bool is_optional = false);
 
     std::string external_name;  // The name of the upstream node to use as input
     std::string internal_name;  // The name of the input that the upstream node maps to.
+    bool is_optional;
 };
 
 /**

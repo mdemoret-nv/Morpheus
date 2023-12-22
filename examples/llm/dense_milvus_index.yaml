@@ -1,0 +1,30 @@
+components:
+- name: Preprocessor
+  params:
+    split_length: 128
+    split_overlap: 12
+    split_respect_sentence_boundary: false
+  type: PreProcessor
+- name: Dense_Retriever
+  params:
+    embedding_model: intfloat/e5-small-v2
+    progress_bar: false
+  type: EmbeddingRetriever
+- name: Dense_Document_Store
+  params:
+    embedding_dim: 384
+    recreate_index: true
+  type: MilvusDocumentStore
+pipelines:
+- name: indexing
+  nodes:
+  - inputs:
+    - File
+    name: Preprocessor
+  - inputs:
+    - Preprocessor
+    name: Dense_Retriever
+  - inputs:
+    - Dense_Retriever
+    name: Dense_Document_Store
+version: 1.23.0

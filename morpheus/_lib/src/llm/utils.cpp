@@ -88,7 +88,9 @@ bool find_matching_input_for_placeholder(UserInputMapping& input_map,
     return false;
 }
 
-input_mappings_t process_input_names(user_input_mappings_t user_inputs, const std::vector<std::string>& input_names)
+input_mappings_t process_input_names(user_input_mappings_t user_inputs,
+                                     const std::vector<std::string>& input_names,
+                                     const std::vector<std::string>& optional_input_names)
 {
     input_mappings_t intermediate_inputs;
     input_mappings_t final_inputs;
@@ -190,6 +192,16 @@ input_mappings_t process_input_names(user_input_mappings_t user_inputs, const st
         throw std::invalid_argument(MORPHEUS_CONCAT_STR(
             "The number of inputs provided does not match the number of inputs expected by the node. Provided: "
             << final_inputs.size() << ", Expected: " << input_names.size()));
+    }
+
+    // Set the optional inputs
+    for (auto& final_input : final_inputs)
+    {
+        if (std::find(optional_input_names.begin(), optional_input_names.end(), final_input.internal_name) !=
+            optional_input_names.end())
+        {
+            final_input.is_optional = true;
+        }
     }
 
     std::set<std::string> specified_names;

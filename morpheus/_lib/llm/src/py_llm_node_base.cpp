@@ -41,6 +41,12 @@ std::vector<std::string> PyLLMNodeBase<BaseT>::get_input_names() const
 }
 
 template <class BaseT>
+std::vector<std::string> PyLLMNodeBase<BaseT>::get_optional_input_names() const
+{
+    PYBIND11_OVERRIDE(std::vector<std::string>, BaseT, get_optional_input_names);
+}
+
+template <class BaseT>
 Task<std::shared_ptr<LLMContext>> PyLLMNodeBase<BaseT>::execute(std::shared_ptr<LLMContext> context)
 {
     MRC_PYBIND11_OVERRIDE_CORO_PURE_TEMPLATE(std::shared_ptr<LLMContext>, LLMNodeBase, BaseT, execute, context);

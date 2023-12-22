@@ -55,6 +55,14 @@ class InputMap():
         """
         The internal node name that the external node maps to. Must match an input returned from `get_input_names()` of the desired node. Defaults to '-' which is a placeholder for the default input of the node. Use a wildcard '\*' to match all inputs of the node (Must also use a wild card on the external mapping).
         """
+    @property
+    def is_optional(self) -> bool:
+        """
+        :type: bool
+        """
+    @is_optional.setter
+    def is_optional(self, arg0: bool) -> None:
+        pass
     pass
 class LLMContext():
     @typing.overload
@@ -120,6 +128,15 @@ class LLMNodeBase():
     def get_input_names(self) -> typing.List[str]: 
         """
         Get the input names for the node.
+
+        Returns
+        -------
+        list[str]
+            The input names for the node
+        """
+    def get_optional_input_names(self) -> typing.List[str]: 
+        """
+        Get the optional input names for the node.
 
         Returns
         -------
@@ -210,7 +227,7 @@ class LLMTaskHandler():
     def __init__(self) -> None: ...
     def get_input_names(self) -> typing.List[str]: 
         """
-        Get the input names for the task handler. 
+        Get the input names for the task handler.
 
         Returns
         -------

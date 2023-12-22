@@ -40,7 +40,7 @@ void LLMEngine::add_task_handler(user_input_mappings_t inputs, std::shared_ptr<L
 {
     auto input_names = task_handler->get_input_names();
 
-    auto final_inputs = process_input_names(inputs, input_names);
+    auto final_inputs = process_input_names(inputs, input_names, {});
 
     m_task_handlers.push_back(std::make_shared<LLMTaskHandlerRunner>(std::move(final_inputs), task_handler));
 }

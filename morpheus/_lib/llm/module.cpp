@@ -94,7 +94,8 @@ PYBIND11_MODULE(llm, _module)
             "The internal node name that the external node maps to. Must match an input returned from "
             "`get_input_names()` of the desired node. Defaults to '-' which is a placeholder for the "
             "default input of the node. Use a wildcard '\\*' to match all inputs of the node (Must also use a "
-            "wild card on the external mapping).");
+            "wild card on the external mapping).")
+        .def_readwrite("is_optional", &InputMap::is_optional, "");
 
     py::class_<LLMTask>(_module, "LLMTask")
         .def(py::init<>())
@@ -223,6 +224,16 @@ PYBIND11_MODULE(llm, _module)
                 list[str]
                     The input names for the node
              )pbdoc")
+        .def("get_optional_input_names",
+             &LLMNodeBase::get_optional_input_names,
+             R"pbdoc(
+                Get the optional input names for the node.
+
+                Returns
+                -------
+                list[str]
+                    The input names for the node
+             )pbdoc")
         .def("execute",
              &LLMNodeBase::execute,
              py::arg("context"),
@@ -301,8 +312,8 @@ PYBIND11_MODULE(llm, _module)
         .def("get_input_names",
              &LLMTaskHandler::get_input_names,
              R"pbdoc(
-                Get the input names for the task handler. 
-                
+                Get the input names for the task handler.
+
                 Returns
                 -------
                 list[str]

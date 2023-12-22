@@ -39,7 +39,7 @@ def run():
 )
 @click.option(
     "--pipeline_batch_size",
-    default=1024,
+    default=16248,
     type=click.IntRange(min=1),
     help=("Internal batch size for the pipeline. Can be much larger than the model batch size. "
           "Also used for Kafka consumers"),
@@ -130,6 +130,104 @@ def pipeline(**kwargs):
 
 @run.command()
 @click.option(
+    "--num_threads",
+    default=os.cpu_count(),
+    type=click.IntRange(min=1),
+    help="Number of internal pipeline threads to use",
+)
+@click.option(
+    "--pipeline_batch_size",
+    default=16248,
+    type=click.IntRange(min=1),
+    help=("Internal batch size for the pipeline. Can be much larger than the model batch size. "
+          "Also used for Kafka consumers"),
+)
+@click.option(
+    "--model_max_batch_size",
+    default=64,
+    type=click.IntRange(min=1),
+    help="Max batch size to use for the model",
+)
+@click.option(
+    "--model_fea_length",
+    default=512,
+    type=click.IntRange(min=1),
+    help="Features length to use for the model",
+)
+@click.option(
+    "--embedding_size",
+    default=384,
+    type=click.IntRange(min=1),
+    help="Output size of the embedding model",
+)
+@click.option(
+    "--model_name",
+    required=True,
+    default='all-MiniLM-L6-v2',
+    help="The name of the model that is deployed on Triton server",
+)
+@click.option("--isolate_embeddings",
+              is_flag=True,
+              default=False,
+              help="Whether to fetch all data prior to executing the rest of the pipeline.")
+@click.option(
+    "--stop_after",
+    default=0,
+    type=click.IntRange(min=0),
+    help="Stop after emitting this many records from the RSS source stage. Useful for testing. Disabled if `0`",
+)
+@click.option(
+    "--enable_cache",
+    is_flag=True,
+    default=False,
+    help="Enable caching of RSS feed request data.",
+)
+@click.option(
+    "--interval_secs",
+    default=600,
+    type=click.IntRange(min=1),
+    help="Interval in seconds between fetching new feed items.",
+)
+@click.option(
+    "--run_indefinitely",
+    is_flag=True,
+    default=False,
+    help=" Indicates whether the process should run continuously.",
+)
+@click.option(
+    "--vector_db_uri",
+    type=str,
+    default="http://localhost:19530",
+    help="URI for connecting to Vector Database server.",
+)
+@click.option(
+    "--vector_db_service",
+    type=str,
+    default="milvus",
+    callback=is_valid_service,
+    help="Name of the vector database service to use.",
+)
+@click.option(
+    "--vector_db_resource_name",
+    type=str,
+    default="RSS",
+    help="The identifier of the resource on which operations are to be performed in the vector database.",
+)
+@click.option(
+    "--triton_server_url",
+    type=str,
+    default="localhost:8001",
+    help="Triton server URL.",
+)
+def pipeline2(**kwargs):
+
+    from .pipeline_haystack import pipeline as _pipeline
+
+    return _pipeline(**kwargs)
+
+
+@run.command()
+@click.option(
     "--model_name",
     required=True,
     default='all-MiniLM-L6-v2',
@@ -146,6 +244,26 @@ def langchain(**kwargs):
     from .langchain import chain
 
     return chain(**kwargs)
+
+
+@run.command()
+@click.option(
+    "--model_name",
+    required=True,
+    default='all-MiniLM-L6-v2',
+    help="The name of the model that is deployed on Triton server",
+)
+@click.option(
+    "--save_cache",
+    default=None,
+    type=click.Path(file_okay=True, dir_okay=False),
+    help="Location to save the cache to",
+)
+def haystack(**kwargs):
+
+    from .langchain import haystack_pipeline
+
+    return haystack_pipeline(**kwargs)
 
 
 @run.command()

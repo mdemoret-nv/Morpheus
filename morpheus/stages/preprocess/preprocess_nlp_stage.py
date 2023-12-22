@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import typing
 from functools import partial
 
@@ -31,6 +32,8 @@ from morpheus.messages import MultiInferenceNLPMessage
 from morpheus.messages import MultiMessage
 from morpheus.stages.preprocess.preprocess_base_stage import PreprocessBaseStage
 from morpheus.utils.cudf_subword_helper import tokenize_text_series
+
+logger = logging.getLogger(__name__)
 
 
 @register_stage(
@@ -146,6 +149,8 @@ class PreprocessNLPStage(PreprocessBaseStage):
             NLP inference message.
 
         """
+        # logger.debug("Got message")
+
         text_ser = cudf.Series(x.get_meta(column))
 
         tokenized = tokenize_text_series(vocab_hash_file=vocab_hash_file,

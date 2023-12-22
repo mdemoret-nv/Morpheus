@@ -192,7 +192,19 @@ nlohmann::json LLMContext::get_inputs() const
 
     for (const auto& in_map : m_inputs)
     {
-        inputs[in_map.internal_name] = this->get_input(in_map.internal_name);
+        try
+        {
+            inputs[in_map.internal_name] = this->get_input(in_map.internal_name);
+        } catch (std::runtime_error& e)
+        {
+            // Check if its an optional input and skip
+            if (in_map.is_optional)
+            {
+                continue;
+            }
+
+            throw e;
+        }
     }
 
     return inputs;

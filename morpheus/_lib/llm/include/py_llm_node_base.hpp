@@ -41,6 +41,8 @@ class PyLLMNodeBase : public BaseT
 
     std::vector<std::string> get_input_names() const override;
 
+    std::vector<std::string> get_optional_input_names() const override;
+
     Task<std::shared_ptr<LLMContext>> execute(std::shared_ptr<LLMContext> context) override;
 };
 

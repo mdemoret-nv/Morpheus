@@ -12,14 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import os
+import pickle
 import time
 
+import pandas as pd
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
 from morpheus.config import Config
+from morpheus.config import CppConfig
 from morpheus.config import PipelineModes
 from morpheus.pipeline.linear_pipeline import LinearPipeline
 from morpheus.stages.general.monitor_stage import MonitorStage
 from morpheus.stages.general.trigger_stage import TriggerStage
 from morpheus.stages.inference.triton_inference_stage import TritonInferenceStage
+from morpheus.stages.input.in_memory_source_stage import InMemorySourceStage
 from morpheus.stages.input.rss_source_stage import RSSSourceStage
 from morpheus.stages.output.write_to_vector_db_stage import WriteToVectorDBStage
 from morpheus.stages.preprocess.deserialize_stage import DeserializeStage
@@ -58,25 +65,52 @@ def pipeline(num_threads: int,
     config.feature_length = model_fea_length
     config.edge_buffer_size = 128
 
+    # CppConfig.set_should_use_cpp(False)
+
     config.class_labels = [str(i) for i in range(embedding_size)]
 
     pipe = LinearPipeline(config)
 
-    # add rss source stage
-    pipe.set_source(
-        RSSSourceStage(config,
-                       feed_input=build_rss_urls(),
-                       batch_size=128,
-                       stop_after=stop_after,
-                       run_indefinitely=run_indefinitely,
-                       enable_cache=enable_cache,
-                       interval_secs=interval_secs))
+    # Load the documents from disk
 
-    pipe.add_stage(MonitorStage(config, description="Source rate", unit='pages'))
+    cache_file = ".cache/langchain.pkl"
 
-    pipe.add_stage(WebScraperStage(config, chunk_size=model_fea_length, enable_cache=enable_cache))
+    if (os.path.exists(cache_file)):
+        with open(cache_file, "rb") as f:
+            documents = pickle.load(f)
 
-    pipe.add_stage(MonitorStage(config, description="Download rate", unit='pages'))
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=128, chunk_overlap=128 // 10)
+
+        documents = text_splitter.split_documents(documents)
+
+        docs_dicts = [doc.dict() for doc in documents]
+
+        df = pd.json_normalize(docs_dicts)
+
+        df.rename(columns={'metadata.title': 'title', 'metadata.link': 'link'}, inplace=True)
+
+        # df = df.iloc[0:config.pipeline_batch_size]
+
+        pipe.set_source(InMemorySourceStage(config, dataframes=[df]))
+
+        pipe.add_stage(MonitorStage(config, description="Source rate", unit='documents', delayed_start=False))
+
+    else:
+
+        # add rss source stage
+        pipe.set_source(
+            RSSSourceStage(config,
+                           feed_input=build_rss_urls(),
+                           stop_after=stop_after,
+                           run_indefinitely=run_indefinitely,
+                           enable_cache=enable_cache,
+                           interval_secs=interval_secs))
+
+        pipe.add_stage(MonitorStage(config, description="Source rate", unit='pages'))
+
+        pipe.add_stage(WebScraperStage(config, chunk_size=128, enable_cache=enable_cache))
+
+        pipe.add_stage(MonitorStage(config, description="Download rate", unit='pages'))
 
     # add deserialize stage
     pipe.add_stage(DeserializeStage(config))
@@ -103,6 +137,8 @@ def pipeline(num_threads: int,
                              use_shared_memory=True))
     pipe.add_stage(MonitorStage(config, description="Inference rate", unit="events", delayed_start=True))
 
+    # pipe.add_stage(TriggerStage(config))
+
     pipe.add_stage(
         WriteToVectorDBStage(config,
                              resource_name=vector_db_resource_name,
@@ -111,9 +147,11 @@ def pipeline(num_threads: int,
                              service=vector_db_service,
                              uri=vector_db_uri))
 
-    pipe.add_stage(MonitorStage(config, description="Upload rate", unit="events", delayed_start=True))
+    pipe.add_stage(MonitorStage(config, description="Upload rate", unit="events", delayed_start=False))
 
     start_time = time.time()
+
+    print("Starting pipeline...")
 
     pipe.run()
 
