@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import functools
 import logging
 import os
 import pickle
@@ -24,6 +25,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores.milvus import Milvus
 
 from llm.common.utils import build_rss_urls
+from llm.common.utils import convert_docs_langchain_to_haystack
 from morpheus.llm import LLMContext
 from morpheus.llm import LLMNodeBase
 from morpheus.utils.logging_timer import log_time
@@ -32,6 +34,16 @@ logger = logging.getLogger(__name__)
 
 
 def haystack_pipeline(model_name, save_cache):
+
+    # import mrc.core.options
+
+    # options = mrc.core.options.Options()
+
+    # system = mrc.core.options.ISystem(options)
+
+    # print(f"Current CPU set: {system.get_cpuset()}")
+
+    # print(f"Current CPU set: {mrc.core.options.Config.get_cpuset()}")
 
     from haystack import Document as HaystackDocument
     from haystack import Pipeline
@@ -70,20 +82,7 @@ def haystack_pipeline(model_name, save_cache):
         log.count = len(documents)
 
         # Convert documents to Haystack docs
-        haystack_documents = []
-        for document in documents:
-            metadata = document.metadata or {}
-
-            for key, value in document.metadata.items():
-                if isinstance(value, datetime):
-                    metadata[key] = value.isoformat()
-
-            haystack_document = HaystackDocument(
-                content=document.page_content,
-                meta=metadata,
-            )
-            haystack_document.meta["_doc_id"] = haystack_document.id  # used for deletion
-            haystack_documents.append(haystack_document)
+        haystack_documents = convert_docs_langchain_to_haystack(documents)
 
         # pipeline = Pipeline.load_from_yaml("dense_milvus_index.yaml")
 
@@ -95,13 +94,13 @@ def haystack_pipeline(model_name, save_cache):
                           name="Preprocessor",
                           inputs=["File"])
 
-        pipeline.add_node(component=EmbeddingRetriever(
+        embedding_component = EmbeddingRetriever(
             document_store=None,
             progress_bar=False,
             embedding_model="intfloat/e5-small-v2",
-        ),
-                          name="Dense_Retriever",
-                          inputs=["Preprocessor"])
+        )
+
+        pipeline.add_node(component=embedding_component, name="Dense_Retriever", inputs=["Preprocessor"])
 
         pipeline.add_node(component=MilvusDocumentStore(
             embedding_dim=384,
@@ -112,6 +111,20 @@ def haystack_pipeline(model_name, save_cache):
                           inputs=["Dense_Retriever"])
 
         pipeline.save_to_yaml("dense_milvus_index.yaml")
+
+        # Test: Try to run the component directly
+        async def run_pipeline():
+
+            print("Starting async code")
+            loop = asyncio.get_event_loop()
+
+            result = await loop.run_in_executor(
+                None,
+                functools.partial(embedding_component._dispatch_run, root_node="File", documents=haystack_documents))
+
+            print("Test done")
+
+        asyncio.run(run_pipeline())
 
         result = pipeline.run(documents=haystack_documents)
 

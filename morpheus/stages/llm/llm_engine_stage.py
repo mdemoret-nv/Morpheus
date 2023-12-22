@@ -68,7 +68,7 @@ class LLMEngineStage(PassThruTypeMixin, SinglePortStage):
     def _build_single(self, builder: mrc.Builder, input_node: mrc.SegmentObject) -> mrc.SegmentObject:
 
         node = _llm.LLMEngineStage(builder, self.unique_name, self._engine)
-        node.launch_options.pe_count = self._config.num_threads
+        node.launch_options.pe_count = 1
 
         builder.make_edge(input_node, node)
 

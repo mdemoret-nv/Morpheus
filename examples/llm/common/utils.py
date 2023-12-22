@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+from datetime import datetime
 
 import pymilvus
 from langchain.embeddings import HuggingFaceEmbeddings
@@ -138,3 +139,25 @@ def build_rss_urls():
         # "https://blog.google/threat-analysis-group/rss/",
         # "https://intezer.com/feed/",
     ]
+
+
+def convert_docs_langchain_to_haystack(langchain_docs):
+
+    from haystack import Document as HaystackDocument
+
+    haystack_documents = []
+    for langchain_doc in langchain_docs:
+        metadata = langchain_doc.metadata or {}
+
+        for key, value in langchain_doc.metadata.items():
+            if isinstance(value, datetime):
+                metadata[key] = value.isoformat()
+
+        haystack_document = HaystackDocument(
+            content=langchain_doc.page_content,
+            meta=metadata,
+        )
+        haystack_document.meta["_doc_id"] = haystack_document.id  # used for deletion
+        haystack_documents.append(haystack_document)
+
+    return haystack_documents

@@ -28,6 +28,8 @@ from haystack import Pipeline
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from milvus_haystack import MilvusDocumentStore  # pylint: disable=unused-import # noqa: F401
 
+import cudf
+
 from morpheus._lib.messages import MessageMeta
 from morpheus.config import Config
 from morpheus.config import CppConfig
@@ -52,9 +54,44 @@ from morpheus.stages.preprocess.preprocess_nlp_stage import PreprocessNLPStage
 
 from ..common.utils import build_milvus_config
 from ..common.utils import build_rss_urls
+from ..common.utils import convert_docs_langchain_to_haystack
 from ..common.web_scraper_stage import WebScraperStage
 
 logger = logging.getLogger(__name__)
+
+
+class TestHaystackEmbeddingNode(LLMNodeBase):
+    """
+    Extracts fields from the DataFrame contained by the message attached to the `LLMContext` and copies them directly
+    to the context.
+
+    The list of fields to be extracted is provided by the task's `input_keys` attached to the `LLMContext`.
+    """
+
+    def __init__(self, cache_file: str, component: BaseComponent, **component_kwargs) -> None:
+        super().__init__()
+
+        with open(cache_file, "rb") as f:
+            documents = pickle.load(f)
+
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=128, chunk_overlap=128 // 10)
+
+        documents = text_splitter.split_documents(documents)
+
+        self._documents = convert_docs_langchain_to_haystack(documents)
+
+        self._component = component
+        self._component_kwargs = component_kwargs
+
+    def get_input_names(self) -> list[str]:
+        # This node does not receive its inputs from upstream nodes, but rather from the task itself
+        return []
+
+    async def execute(self, context: LLMContext) -> LLMContext:
+
+        self._component._dispatch_run(documents=self._documents, **self._component_kwargs)
+
+        return context
 
 
 class HaystackFileNode(LLMNodeBase):
@@ -124,9 +161,11 @@ class HaystackNode(LLMNodeBase):
         if (hasattr(self._component, "arun")):
             return self._component.arun(**kwargs)
 
-        loop = asyncio.get_event_loop()
+        result = self._component._dispatch_run(**kwargs)
 
-        result = await loop.run_in_executor(None, functools.partial(self._component._dispatch_run, **kwargs))
+        # loop = asyncio.get_event_loop()
+
+        # result = await loop.run_in_executor(None, functools.partial(self._component._dispatch_run, **kwargs))
 
         return result[0]
 
@@ -202,6 +241,9 @@ class HaystackNode(LLMNodeBase):
         # return parsed_results
 
     async def execute(self, context: LLMContext) -> LLMContext:
+        import mrc.core.options
+        print(f"Current CPU set: {mrc.core.options.Config.get_cpuset()}")
+
         input_dict = context.get_inputs()
 
         try:
@@ -219,6 +261,36 @@ class HaystackNode(LLMNodeBase):
         return context
 
 
+def test_run():
+    from haystack.nodes.retriever import EmbeddingRetriever
+    context = LLMContext()
+
+    node = TestHaystackEmbeddingNode(cache_file=".cache/langchain.pkl",
+                                     component=EmbeddingRetriever(
+                                         document_store=None,
+                                         embedding_model="intfloat/e5-small-v2",
+                                     ),
+                                     root_node="File")
+
+    engine = LLMEngine()
+
+    engine.add_node("Test", inputs=[], node=node)
+
+    async def main_fn():
+
+        message = ControlMessage()
+        message.payload(MessageMeta(df=cudf.DataFrame()))
+        message.add_task("llm_engine", {
+            "task_type": "completion", "task_dict": {
+                "input_keys": ["title", "link", "content"],
+            }
+        })
+
+        await engine.run(message)
+
+    asyncio.run(main_fn())
+
+
 def pipeline(num_threads: int,
              pipeline_batch_size: int,
              model_max_batch_size: int,
@@ -234,6 +306,8 @@ def pipeline(num_threads: int,
              vector_db_service: str,
              vector_db_resource_name: str,
              triton_server_url: str):
+
+    # test_run()
 
     config = Config()
     config.mode = PipelineModes.NLP
@@ -305,7 +379,7 @@ def pipeline(num_threads: int,
     hay_pipe = Pipeline.load_from_yaml("dense_milvus_index.yaml")
 
     engine = LLMEngine()
-
+    engine.run
     root_node = None
 
     # Copy components into nodes
