@@ -15,10 +15,14 @@ import asyncio
 import functools
 import inspect
 import logging
+import multiprocessing
+import multiprocessing as mp
 import os
 import pickle
 import time
 import typing
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 import networkx as nx
 import pandas as pd
@@ -123,6 +127,13 @@ class HaystackFileNode(LLMNodeBase):
         return context
 
 
+def component_dispatch_run(component: BaseComponent, *args, **kwargs):
+    # import mrc.core.options
+    # logging.getLogger(__name__).info(f"Current CPU set: {mrc.core.options.Config.get_cpuset()}")
+
+    return component._dispatch_run(*args, **kwargs)
+
+
 class HaystackNode(LLMNodeBase):
     """
     Executes a Haystack agent in an LLMEngine
@@ -135,11 +146,12 @@ class HaystackNode(LLMNodeBase):
         Default value is True.
     """
 
-    def __init__(self, component: BaseComponent, return_only_answer: bool = True):
+    def __init__(self, component: BaseComponent, return_only_answer: bool = True, executor=None):
         super().__init__()
 
         self._component = component
         self._return_only_answer = return_only_answer
+        self._executor = executor
 
         run_signature_args = inspect.signature(self._component.run)
 
@@ -149,6 +161,8 @@ class HaystackNode(LLMNodeBase):
             p_name for p_name,
             p_value in run_signature_args.parameters.items() if p_value.default != inspect.Parameter.empty
         ]
+
+        self._execution_count = 0
 
     def get_input_names(self) -> list[str]:
         return self._all_inputs
@@ -161,11 +175,14 @@ class HaystackNode(LLMNodeBase):
         if (hasattr(self._component, "arun")):
             return self._component.arun(**kwargs)
 
-        result = self._component._dispatch_run(**kwargs)
+        if (self._executor is None):
 
-        # loop = asyncio.get_event_loop()
+            result = self._component._dispatch_run(**kwargs)
+        else:
+            loop = asyncio.get_event_loop()
 
-        # result = await loop.run_in_executor(None, functools.partial(self._component._dispatch_run, **kwargs))
+            result = await loop.run_in_executor(
+                self._executor, functools.partial(component_dispatch_run, component=self._component, **kwargs))
 
         return result[0]
 
@@ -241,8 +258,13 @@ class HaystackNode(LLMNodeBase):
         # return parsed_results
 
     async def execute(self, context: LLMContext) -> LLMContext:
-        import mrc.core.options
-        print(f"Current CPU set: {mrc.core.options.Config.get_cpuset()}")
+        # import mrc.core.options
+        # logger.info(f"Current CPU set: {mrc.core.options.Config.get_cpuset()}")
+
+        self._execution_count += 1
+        execute_id = self._execution_count
+
+        logger.debug("Running node %s[%s]...", self._component.name, execute_id)
 
         input_dict = context.get_inputs()
 
@@ -257,6 +279,8 @@ class HaystackNode(LLMNodeBase):
             logger.error("Parsing of results encountered an error: %s", exe)
         except Exception as exe:
             logger.error("Processing input encountered an error: %s", exe)
+
+        logger.debug("Running node %s[%s]... Complete", self._component.name, execute_id)
 
         return context
 
@@ -291,6 +315,38 @@ def test_run():
     asyncio.run(main_fn())
 
 
+def init_fn(*args):
+    # import mrc.core.options
+    # logging.getLogger("morpheus").info(f"Init Fn CPU set: {mrc.core.options.Config.get_cpuset()}")
+
+    # Forces more threads to be created
+    time.sleep(0.5)
+
+
+def test_mp():
+    from haystack.nodes.retriever import EmbeddingRetriever
+    with open(".cache/langchain.pkl", "rb") as f:
+        documents = pickle.load(f)
+
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=128, chunk_overlap=128 // 10)
+
+    documents = text_splitter.split_documents(documents)
+
+    documents = convert_docs_langchain_to_haystack(documents)
+
+    component = EmbeddingRetriever(
+        document_store=None,
+        embedding_model="intfloat/e5-small-v2",
+    )
+
+    executor = ProcessPoolExecutor(max_workers=2)
+    dispatch_ret = executor.submit(component_dispatch_run, component=component, documents=documents, root_node="File")
+
+    result = dispatch_ret.result()
+
+    print("Done!")
+
+
 def pipeline(num_threads: int,
              pipeline_batch_size: int,
              model_max_batch_size: int,
@@ -308,6 +364,7 @@ def pipeline(num_threads: int,
              triton_server_url: str):
 
     # test_run()
+    # test_mp()
 
     config = Config()
     config.mode = PipelineModes.NLP
@@ -343,7 +400,9 @@ def pipeline(num_threads: int,
 
         df.rename(columns={'metadata.title': 'title', 'metadata.link': 'link', "page_content": "content"}, inplace=True)
 
-        df = df.iloc[0:2 * config.pipeline_batch_size]
+        # df = df.iloc[0:2 * config.pipeline_batch_size]
+
+        df = cudf.DataFrame.from_pandas(df)
 
         pipe.set_source(InMemorySourceStage(config, dataframes=[df]))
 
@@ -379,8 +438,20 @@ def pipeline(num_threads: int,
     hay_pipe = Pipeline.load_from_yaml("dense_milvus_index.yaml")
 
     engine = LLMEngine()
-    engine.run
     root_node = None
+
+    process_count = 2
+
+    logger.info("Starting up %s processes", process_count)
+
+    executor = ProcessPoolExecutor(max_workers=2)
+
+    iter = executor.map(init_fn, range(process_count))
+
+    for _ in iter:
+        pass
+
+    logger.info("Multiprocessing pool initialized")
 
     # Copy components into nodes
     for name in nx.topological_sort(hay_pipe.graph):
@@ -391,7 +462,8 @@ def pipeline(num_threads: int,
             root_node = engine.add_node("File", node=HaystackFileNode())
         else:
             inputs = [(f"/{n}/*", "*") for n in node_info["inputs"]]
-            node = HaystackNode(component=node_info["component"])
+            node = HaystackNode(component=node_info["component"],
+                                executor=executor if node_info["component"].type == "EmbeddingRetriever" else None)
 
             if ("root_node" in node.get_input_names()):
                 # Prepend pulling root_node from the root_node
@@ -401,8 +473,8 @@ def pipeline(num_threads: int,
 
     engine.add_task_handler(inputs=[f"/{name}/documents"], handler=SimpleTaskHandler())
 
-    # pipe.add_stage(LLMEngineStage(config, engine=engine))
-    sink = pipe.add_stage(InMemorySinkStage(config))
+    pipe.add_stage(LLMEngineStage(config, engine=engine))
+    # sink = pipe.add_stage(InMemorySinkStage(config))
 
     # # add preprocessing stage
     # pipe.add_stage(
@@ -435,26 +507,27 @@ def pipeline(num_threads: int,
 
     pipe.add_stage(MonitorStage(config, description="Upload rate", unit="events", delayed_start=False))
 
-    message = ControlMessage()
-    message.payload(MessageMeta(df=df))
-    message.add_task("llm_engine", {
-        "task_type": "completion", "task_dict": {
-            "input_keys": ["title", "link", "content"],
-        }
-    })
+    # message = ControlMessage()
+    # message.payload(MessageMeta(df=df))
+    # message.add_task("llm_engine", {
+    #     "task_type": "completion", "task_dict": {
+    #         "input_keys": ["title", "link", "content"],
+    #     }
+    # })
 
     start_time = time.time()
 
     print("Starting pipeline...")
 
-    # pipe.run()
+    pipe.run()
 
     # message = sink.get_messages()[0]
-    async def test(m):
-        result = await engine.run(m)
 
-        print(result)
+    # async def test(m):
+    #     result = await engine.run(m)
 
-    asyncio.run(test(message))
+    #     print(result)
+
+    # asyncio.run(test(message))
 
     return start_time

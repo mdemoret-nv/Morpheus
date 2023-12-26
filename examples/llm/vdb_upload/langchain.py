@@ -45,6 +45,7 @@ def haystack_pipeline(model_name, save_cache):
 
     # print(f"Current CPU set: {mrc.core.options.Config.get_cpuset()}")
 
+    from haystack import BaseComponent
     from haystack import Document as HaystackDocument
     from haystack import Pipeline
     from haystack.nodes.preprocessor import PreProcessor
@@ -73,11 +74,11 @@ def haystack_pipeline(model_name, save_cache):
 
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=128, chunk_overlap=128 // 10)
 
-        pre_chunk_count = len(documents)
+        # pre_chunk_count = len(documents)
 
         documents = text_splitter.split_documents(documents)
 
-        logger.info("Split %s documents into %s chunks", pre_chunk_count, len(documents))
+        # logger.info("Split %s documents into %s chunks", pre_chunk_count, len(documents))
 
         log.count = len(documents)
 
@@ -88,48 +89,52 @@ def haystack_pipeline(model_name, save_cache):
 
         pipeline = Pipeline()
 
-        pipeline.add_node(component=PreProcessor(split_length=128,
-                                                 split_respect_sentence_boundary=False,
-                                                 split_overlap=128 // 10),
-                          name="Preprocessor",
-                          inputs=["File"])
+        preprocess_component = PreProcessor(split_length=128,
+                                            split_respect_sentence_boundary=False,
+                                            split_overlap=128 // 10,
+                                            progress_bar=False)
 
         embedding_component = EmbeddingRetriever(
             document_store=None,
             progress_bar=False,
-            embedding_model="intfloat/e5-small-v2",
+            embedding_model=model_name,
         )
 
-        pipeline.add_node(component=embedding_component, name="Dense_Retriever", inputs=["Preprocessor"])
-
-        pipeline.add_node(component=MilvusDocumentStore(
+        milvus_component = MilvusDocumentStore(
             embedding_dim=384,
             recreate_index=True,
             uri="http://localhost:19530/default",
-        ),
-                          name="Dense_Document_Store",
-                          inputs=["Dense_Retriever"])
+        )
+
+        pipeline.add_node(component=preprocess_component, name="Preprocessor", inputs=["File"])
+
+        pipeline.add_node(component=embedding_component, name="Dense_Retriever", inputs=["Preprocessor"])
+
+        pipeline.add_node(component=milvus_component, name="Dense_Document_Store", inputs=["Dense_Retriever"])
 
         pipeline.save_to_yaml("dense_milvus_index.yaml")
 
-        # Test: Try to run the component directly
-        async def run_pipeline():
+        with log_time(msg="Running Haystack pipeline took {duration} ms. {rate_per_sec} docs/sec",
+                      log_fn=logger.debug) as log:
 
-            print("Starting async code")
-            loop = asyncio.get_event_loop()
+            result = pipeline.run(documents=haystack_documents, debug=True)
 
-            result = await loop.run_in_executor(
-                None,
-                functools.partial(embedding_component._dispatch_run, root_node="File", documents=haystack_documents))
+            log.count = len(result["documents"])
 
-            print("Test done")
+        result_count = len(result["documents"])
 
-        asyncio.run(run_pipeline())
+        def print_debug_time(component: BaseComponent):
+            duration_ms = result["_debug"][component.name]["exec_time_ms"]
+            duration_sec = duration_ms / 1000
 
-        result = pipeline.run(documents=haystack_documents)
+            logger.info("[Haystack] Node '%s' took %s ms. %s docs/sec",
+                        component.name,
+                        duration_ms,
+                        result_count / duration_sec)
 
-        print("Done. Result:")
-        print(len(result))
+        print_debug_time(preprocess_component)
+        print_debug_time(embedding_component)
+        print_debug_time(milvus_component)
 
         # embeddings = HuggingFaceEmbeddings(
         #     model_name=model_name,
@@ -148,31 +153,50 @@ def haystack_pipeline(model_name, save_cache):
 
 def chain(model_name, save_cache):
 
+    from langchain.schema import Document
+
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=128, chunk_overlap=128 // 10)
+
+    embeddings = HuggingFaceEmbeddings(
+        model_name=model_name,
+        model_kwargs={'device': 'cuda'},
+        encode_kwargs={
+            'normalize_embeddings': True,  # set True to compute cosine similarity
+            "batch_size": 32,
+        })
+
+    documents: list[Document] = None
+
+    if (save_cache is not None and os.path.exists(save_cache)):
+        with open(save_cache, "rb") as f:
+            documents = pickle.load(f)
+
+    for doc in documents:
+        for key, value in doc.metadata.items():
+            if isinstance(value, datetime):
+                doc.metadata[key] = value.isoformat()
+            elif isinstance(value, list):
+                # Just skip it
+                doc.metadata[key] = "<Array>"
+            elif value is None:
+                doc.metadata[key] = "<None>"
+
     with log_time(msg="Seeding with chain took {duration} ms. {rate_per_sec} docs/sec", log_fn=logger.debug) as log:
 
-        loader = RSSFeedLoader(urls=build_rss_urls())
+        if (documents is None):
+            loader = RSSFeedLoader(urls=build_rss_urls())
 
-        documents = loader.load()
+            documents = loader.load()
 
-        if (save_cache is not None):
-            with open(save_cache, "wb") as f:
-                pickle.dump(documents, f)
-
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=20, length_function=len)
+            if (save_cache is not None):
+                with open(save_cache, "wb") as f:
+                    pickle.dump(documents, f)
 
         documents = text_splitter.split_documents(documents)
 
         log.count = len(documents)
 
         logger.info("Loaded %s documents", len(documents))
-
-        embeddings = HuggingFaceEmbeddings(
-            model_name=model_name,
-            model_kwargs={'device': 'cuda'},
-            encode_kwargs={
-                # 'normalize_embeddings': True, # set True to compute cosine similarity
-                "batch_size": 100,
-            })
 
         with log_time(msg="Adding to Milvus took {duration} ms. Doc count: {count}. {rate_per_sec} docs/sec",
                       count=log.count,

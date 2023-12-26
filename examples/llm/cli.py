@@ -48,6 +48,10 @@ def cli(ctx: click.Context, log_level: int, use_cpp: bool):
 
     CppConfig.set_should_use_cpp(use_cpp)
 
+    import multiprocessing as mp
+
+    mp.set_start_method('spawn')
+
     # Configure the logging
     configure_logging(log_level=log_level)
 

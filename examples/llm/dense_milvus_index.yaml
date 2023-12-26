@@ -1,6 +1,7 @@
 components:
 - name: Preprocessor
   params:
+    progress_bar: false
     split_length: 128
     split_overlap: 12
     split_respect_sentence_boundary: false

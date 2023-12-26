@@ -19,6 +19,8 @@ import time
 import pandas as pd
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
+import cudf
+
 from morpheus.config import Config
 from morpheus.config import CppConfig
 from morpheus.config import PipelineModes
@@ -90,6 +92,8 @@ def pipeline(num_threads: int,
         df.rename(columns={'metadata.title': 'title', 'metadata.link': 'link'}, inplace=True)
 
         # df = df.iloc[0:config.pipeline_batch_size]
+
+        df = cudf.DataFrame.from_pandas(df)
 
         pipe.set_source(InMemorySourceStage(config, dataframes=[df]))
 
