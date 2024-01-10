@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import os
 import time
+from ..common.document_chunking_stage import DocumentChunkingStage
 
 from morpheus.config import Config
 from morpheus.config import PipelineModes
@@ -62,19 +64,15 @@ def pipeline(num_threads: int,
 
     pipe = LinearPipeline(config)
 
-    # add rss source stage
-    pipe.set_source(
-        RSSSourceStage(config,
-                       feed_input=build_rss_urls(),
-                       batch_size=128,
-                       stop_after=stop_after,
-                       run_indefinitely=run_indefinitely,
-                       enable_cache=enable_cache,
-                       interval_secs=interval_secs))
+    pipe.set_source(ConfluenceSource(config,
+                             confluence_base_url=os.environ.get("CONFLUENCE_BASE_URL"),
+                             space=os.environ.get("CONFLUENCE_SPACE"),
+                             use_cache=enable_cache))
 
-    pipe.add_stage(MonitorStage(config, description="Source rate", unit='pages'))
-
-    pipe.add_stage(WebScraperStage(config, chunk_size=model_fea_length, enable_cache=enable_cache))
+        pipe.add_stage(
+            DocumentChunkingStage(config,
+                                  content_column='page_content',
+                                  chunker=RecursiveCharacterTextSplitter(chunk_size=128, chunk_overlap=128 // 10)))
 
     pipe.add_stage(MonitorStage(config, description="Download rate", unit='pages'))
 
