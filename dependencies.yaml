@@ -21,17 +21,16 @@ files:
       cuda: ["11.8"]
       arch: [x86_64]
     includes:
-      - data_retrieval
-      - build_cpp
-      - development
       - benchmark_cpp
+      - build_cpp
+      - checks
+      - cudatoolkit
+      - data_retrieval
+      - development
+      - docs
       - examples
       - runtime
       - test_python_morpheus
-      - docs
-      - cudatoolkit
-      - runtime
-      - checks
 
   dev:
     output: conda
@@ -39,16 +38,15 @@ files:
       cuda: ["11.8"]
       arch: [x86_64]
     includes:
-      - data_retrieval
-      - build_cpp
-      - development
       - benchmark_cpp
+      - build_cpp
+      - checks
+      - cudatoolkit
+      - data_retrieval
+      - development
+      - docs
       - runtime
       - test_python_morpheus
-      - docs
-      - cudatoolkit
-      - runtime
-      - checks
 
   build:
     output: none
@@ -56,12 +54,12 @@ files:
       cuda: ["11.8"]
       arch: [x86_64]
     includes:
-      - build_cpp
-      - development
       - benchmark_cpp
+      - build_cpp
+      - cudatoolkit
+      - development
       - runtime
       - test_python_morpheus
-      - cudatoolkit
 
   test:
     output: none
@@ -69,14 +67,14 @@ files:
       cuda: ["11.8"]
       arch: [x86_64]
     includes:
-      - data_retrieval
-      - build_cpp
-      - development
       - benchmark_cpp
+      - build_cpp
+      - cudatoolkit
+      - data_retrieval
+      - development
+      - examples
       - runtime
       - test_python_morpheus
-      - examples
-      - cudatoolkit
 
   docs:
     output: none
@@ -84,13 +82,13 @@ files:
       cuda: ["11.8"]
       arch: [x86_64]
     includes:
-      - data_retrieval
-      - build_cpp
       - benchmark_cpp
+      - build_cpp
       - cudatoolkit
+      - data_retrieval
       - docs
-      - runtime
       - examples
+      - runtime
 
   runtime:
     output: none
@@ -123,22 +121,23 @@ dependencies:
     common:
       - output_types: [conda]
         packages:
-          - mrc=24.03 # should this be in build, or somewhere else?
-          - gcc_linux-64=11.2
-          - gxx_linux-64=11.2
-          - cmake=3.25
           - boost-cpp=1.82
+          - cmake=3.25
           - cuda-nvcc
           - cudf=23.06
           - cxx-compiler
           - cython=0.29.24
+          - gcc_linux-64=11.2
+          - gxx_linux-64=11.2
           - librdkafka=1.9.2
+          - mrc=24.03 # should this be in build, or somewhere else?
           - ninja=1.10
           - nlohmann_json=3.9
           - protobuf=4.21.*
           - pybind11-stubgen=0.10
           - rapidjson=1.1.0
           - scikit-build=0.17.1
+          - sysroot_linux-64=2.17
           - tritonclient=2.26 # Required by NvTabular, force the version, so we get protobufs compatible with 4.21
           - ucx=1.14
 
@@ -158,6 +157,7 @@ dependencies:
     common:
       - output_types: [conda]
         packages:
+          - ccache>=3.7
           - clangdev=16
           - flake8
           - include-what-you-use=0.20
@@ -170,17 +170,17 @@ dependencies:
       - output_types: [conda]
         packages:
           - breathe=4.34.0
+          - click >=8
           - doxygen=1.9.2
           - exhale=0.3.6
           - ipython
           - myst-parser=0.17.2
           - nbsphinx
+          - numpydoc=1.4
+          - pluggy=1.0
           - python-graphviz
           - sphinx
           - sphinx_rtd_theme
-          - numpydoc=1.4
-          - pluggy=1.0
-          - &click click >=8
 
   benchmark_cpp:
     common:
@@ -206,10 +206,12 @@ dependencies:
           - newspaper3k=0.2
           - openai=0.28
           - papermill=2.3.4
+          - pip
           - pypdf=3.16
           - s3fs>=2023.6
           - sentence-transformers
           - transformers=4.30.2 # newer versions are incompatible with our pinned version of huggingface_hub
+
           ####### Pip Transitive Dependencies (keep sorted!) #######
           # These are dependencies that are available on conda, but are required by the pip packages listed below. Its much
           # better to install them with conda than pip to allow for better dependency resolution.
@@ -217,8 +219,9 @@ dependencies:
           - minio=7.1
           - python-dotenv=1.0
           - ujson=5.8
+
           ####### Pip Dependencies (keep sorted!) #######
-          - pip
+
           - pip:
               - google-search-results==2.4
               - grpcio-status==1.58 # To keep in sync with 1.58 grpcio which is installed for Morpheus
@@ -240,6 +243,7 @@ dependencies:
           - nb_conda_kernels
           - numpydoc=1.4
           - nvtabular=23.06
+          - pip
           - python-confluent-kafka=1.9.2
           - python-graphviz
           - pytorch-cuda
@@ -251,7 +255,12 @@ dependencies:
           - typing_utils=0.1
           - watchdog=2.1
           - websockets
-          - pip
+
+          ####### Pip Transitive Dependencies (keep sorted!) #######
+          # These are dependencies that are available on conda, but are required by the pip packages listed below. Its
+          # much better to install them with conda than pip to allow for better dependency resolution.
+          - py4j=0.10
+
           - pip:
             - databricks-connect
             - milvus==2.3.2
@@ -263,11 +272,18 @@ dependencies:
       - output_types: [conda]
         packages:
           - nodejs=18.*
+          - pip
           - pytest
           - pytest-asyncio
           - pytest-benchmark>=4.0
           - pytest-cov
-          - pip
+
+          ####### Pip Transitive Dependencies (keep sorted!) #######
+          # These are dependencies that are available on conda, but are required by the pip packages listed below. Its
+          # much better to install them with conda than pip to allow for better dependency resolution.
+          - kafka-python=2.0
+          - port-for=0.7
+
           - pip:
               - pytest-kafka==0.6.0
 
