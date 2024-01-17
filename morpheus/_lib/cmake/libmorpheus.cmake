@@ -67,6 +67,7 @@ add_library(morpheus
   src/stages/add_classification.cpp
   src/stages/add_scores_stage_base.cpp
   src/stages/add_scores.cpp
+  src/stages/dataframe_loader.cpp
   src/stages/deserialize.cpp
   src/stages/file_source.cpp
   src/stages/filter_detection.cpp

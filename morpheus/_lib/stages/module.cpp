@@ -20,6 +20,7 @@
 #include "morpheus/objects/file_types.hpp"  // for FileTypes
 #include "morpheus/stages/add_classification.hpp"
 #include "morpheus/stages/add_scores.hpp"
+#include "morpheus/stages/dataframe_loader.hpp"
 #include "morpheus/stages/deserialize.hpp"
 #include "morpheus/stages/file_source.hpp"
 #include "morpheus/stages/filter_detection.hpp"
@@ -93,6 +94,12 @@ PYBIND11_MODULE(stages, _module)
              py::arg("name"),
              py::arg("batch_size"),
              py::arg("ensure_sliceable_index") = true);
+
+    py::class_<mrc::segment::Object<DataFrameLoaderStage>,
+               mrc::segment::ObjectProperties,
+               std::shared_ptr<mrc::segment::Object<DataFrameLoaderStage>>>(
+        _module, "DataFrameLoaderStage", py::multiple_inheritance())
+        .def(py::init<>(&DataFrameLoaderStageInterfaceProxy::init), py::arg("builder"), py::arg("name"));
 
     py::class_<mrc::segment::Object<FileSourceStage>,
                mrc::segment::ObjectProperties,
