@@ -26,6 +26,7 @@
 #include "morpheus/stages/filter_detection.hpp"
 #include "morpheus/stages/http_server_source_stage.hpp"
 #include "morpheus/stages/kafka_source.hpp"
+#include "morpheus/stages/operators/control_message_router.hpp"
 #include "morpheus/stages/preallocate.hpp"
 #include "morpheus/stages/preprocess_fil.hpp"
 #include "morpheus/stages/preprocess_nlp.hpp"
@@ -36,6 +37,7 @@
 #include "morpheus/utilities/http_server.hpp"  // for DefaultMaxPayloadSize
 #include "morpheus/version.hpp"
 
+#include <mrc/edge/edge_writable.hpp>
 #include <mrc/segment/object.hpp>
 #include <mrc/utils/string_utils.hpp>
 #include <pybind11/attr.h>      // for multiple_inheritance
@@ -259,6 +261,35 @@ PYBIND11_MODULE(stages, _module)
              py::arg("file_type")         = FileTypes::Auto,
              py::arg("include_index_col") = true,
              py::arg("flush")             = false);
+
+    auto operators_module = _module.def_submodule("operators");
+
+    py::class_<mrc::edge::IWritableAcceptor<std::shared_ptr<ControlMessage>>,
+               std::shared_ptr<mrc::edge::IWritableAcceptor<std::shared_ptr<ControlMessage>>>>(
+        operators_module, "ControlMessageWritableAcceptor");
+
+    py::class_<mrc::edge::IWritableProvider<std::shared_ptr<ControlMessage>>,
+               std::shared_ptr<mrc::edge::IWritableProvider<std::shared_ptr<ControlMessage>>>>(
+        operators_module, "ControlMessageWritableProvider");
+
+    py::class_<mrc::segment::Object<ControlMessageRouter>,
+               mrc::segment::ObjectProperties,
+               std::shared_ptr<mrc::segment::Object<ControlMessageRouter>>>(
+        operators_module, "ControlMessageRouter", py::multiple_inheritance())
+        .def(py::init<>(&ControlMessageRouterInterfaceProxy::init), py::arg("builder"), py::arg("name"))
+        .def(
+            "get_source",
+            [](mrc::segment::Object<ControlMessageRouter>& self, py::object key) {
+                // Need to get a hash of the object to use as a key
+                auto object_hash = py::hash(key);
+
+                // Need to ensure that we keey the key object alive
+
+                auto edge = self.object().get_source(object_hash);
+
+                return edge;
+            },
+            py::return_value_policy::reference_internal);
 
     _module.attr("__version__") =
         MRC_CONCAT_STR(morpheus_VERSION_MAJOR << "." << morpheus_VERSION_MINOR << "." << morpheus_VERSION_PATCH);

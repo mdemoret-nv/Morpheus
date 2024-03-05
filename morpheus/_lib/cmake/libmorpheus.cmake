@@ -72,6 +72,7 @@ add_library(morpheus
   src/stages/filter_detection.cpp
   src/stages/http_server_source_stage.cpp
   src/stages/kafka_source.cpp
+  src/stages/operators/control_message_router.cpp
   src/stages/preprocess_fil.cpp
   src/stages/preprocess_nlp.cpp
   src/stages/serialize.cpp

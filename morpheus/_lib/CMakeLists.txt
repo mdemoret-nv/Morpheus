@@ -74,7 +74,7 @@ morpheus_utils_python_package_set_default_link_targets(morpheus)
 morpheus_add_pybind11_module(common SOURCE_FILES common/module.cpp)
 
 #----------morpheus._lib.stages---------
-morpheus_add_pybind11_module(stages SOURCE_FILES stages/module.cpp)
+morpheus_add_pybind11_module(stages SOURCE_FILES stages/module.cpp SUBMODULES operators)
 
 #----------morpheus._lib.llm---------
 add_subdirectory(llm)

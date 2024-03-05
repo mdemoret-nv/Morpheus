@@ -28,7 +28,8 @@ __all__ = [
     "PreprocessFILStage",
     "PreprocessNLPStage",
     "SerializeStage",
-    "WriteToFileStage"
+    "WriteToFileStage",
+    "operators"
 ]
 
 
