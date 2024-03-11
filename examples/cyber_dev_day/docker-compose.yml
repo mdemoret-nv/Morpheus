@@ -49,7 +49,7 @@ services:
       target: jupyter
     image: morpheus-cyber-dev-day
     ports:
-      - "26303:26302"
+      - "26304:26302"
       - "8888:8888"
     working_dir: /workspace/examples/cyber_dev_day
     command: jupyter-lab --no-browser --allow-root --ip='*'

@@ -38,11 +38,15 @@ RUN source activate morpheus \
 # Copy everything over to the container to build
 COPY . ./
 
+SHELL ["/bin/bash", "-c"]
+
 # Build morpheus
 RUN --mount=type=cache,id=workspace_cache,target=/workspace/.cache,sharing=locked \
     --mount=type=cache,id=workspace_build,target=/workspace/build,sharing=locked \
     source activate morpheus &&\
-    CMAKE_CONFIGURE_EXTRA_ARGS="-DMORPHEUS_PYTHON_BUILD_STUBS=OFF -DMORPHEUS_PYTHON_PERFORM_INSTALL=ON -DMORPHEUS_CUDA_ARCHITECTURES=75;80" ./scripts/compile.sh
+    CMAKE_CONFIGURE_EXTRA_ARGS="-DMORPHEUS_PYTHON_BUILD_STUBS=OFF -DMORPHEUS_PYTHON_PERFORM_INSTALL=ON \
+                                -DMORPHEUS_CUDA_ARCHITECTURES=75;80 -DCMAKE_INSTALL_PREFIX=${CONDA_PREFIX}" \
+        ./scripts/compile.sh --target install
 
 # Set the workdir to the dev day example
 WORKDIR /workspace/examples/cyber_dev_day/
