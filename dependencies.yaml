@@ -407,9 +407,18 @@ dependencies:
           - matrix:
               cuda: "12.1"
             packages:
+              - cuda-compiler=12.1
               - cuda-cudart-dev=12.1
               - cuda-nvml-dev=12.1
-              - cuda-nvrtc-dev=12.1
+              # - cuda-nvrtc-dev=12.1
               - cuda-nvtx-dev=12.1
-              - cuda-tools=12.1
+              # - cuda-tools=12.1
+              - cuda-libraries-dev=12.1
               - cuda-version=12.1
+              # - cuda-cccl=12.1
+              # - cuda-driver-dev=12.1
+              # - libcublas-dev
+              # - libcufft-dev
+              # - libcurand-dev
+              # - libcusolver-dev
+              # - libcusparse-dev

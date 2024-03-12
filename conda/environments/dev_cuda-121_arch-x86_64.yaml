@@ -18,12 +18,12 @@ dependencies:
 - clangdev=16
 - click >=8
 - cmake=3.27
+- cuda-compiler=12.1
 - cuda-cudart-dev=12.1
+- cuda-libraries-dev=12.1
 - cuda-nvcc
 - cuda-nvml-dev=12.1
-- cuda-nvrtc-dev=12.1
 - cuda-nvtx-dev=12.1
-- cuda-tools=12.1
 - cuda-version=12.1
 - cudf=24.02
 - cxx-compiler

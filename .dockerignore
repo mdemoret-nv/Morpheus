@@ -14,3 +14,8 @@
 docker/commands.sh
 *.egg-info/
 kafka-docker
+
+# Temporarily ignore for the Cyber Dev Day 2024 content
+.git/
+examples/data/
+models/

@@ -12,10 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import warnings
+from textwrap import dedent
 
 from packaging.version import InvalidVersion
 from packaging.version import parse as parse_version
+
+logger = logging.getLogger(__name__)
 
 
 def range_version_comparator(software_version: str, vulnerability_lower_range: str, vulnerability_upper_range: str):
@@ -145,6 +149,14 @@ def version_comparison(software_version: str):
 
 class SBOMChecker:
 
+    tool_description = dedent("""
+        Useful for when you need to check the Docker container's software bill of
+        materials (SBOM) to get whether or not a given library is in the container.
+        Input should be the name of the library or software. If the package is
+        present a version number is returned, otherwise False is returned if the
+        package is not present.
+    """).replace("\n", "")
+
     def __init__(self, sbom_map: dict[str, str]):
         self.sbom_map = sbom_map
 
@@ -159,3 +171,17 @@ class SBOMChecker:
             warnings.warn(str(e), stacklevel=2)
             version = False
         return version
+
+    @staticmethod
+    def from_csv(file_path: str) -> "SBOMChecker":
+        """
+        Use this tool to load the SBOM from a CSV file returns an instance of the SBOMChecker class
+        """
+        try:
+            import pandas as pd
+            sbom = pd.read_csv(file_path)
+            sbom_map = dict(zip(sbom['package_name'].str.lower(), sbom['version']))
+            return SBOMChecker(sbom_map)
+        except Exception as e:
+            logger.error("Error loading SBOM from CSV file: %s. Error: %s", file_path, str(e), exc_info=True)
+            raise e

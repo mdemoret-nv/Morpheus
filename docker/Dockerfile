@@ -74,16 +74,8 @@ RUN --mount=type=cache,id=apt,target=/var/cache/apt \
     apt-get install --no-install-recommends -y \
         bc \
         build-essential \
-        cuda-compiler-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-cudart-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-cupti-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-gdb-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
         curl \
         jq \
-        libcublas-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcufft-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcurand-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcusolver-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
         libnuma1 \
         openjdk-11-jre-headless \
         openssh-client \
@@ -127,6 +119,7 @@ RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
       python=${PYTHON_VER} && \
     # Activate the environment automatically from .bashrc
     conda init bash && \
+    conda clean -afy &&\
     echo "conda activate morpheus" >> ~/.bashrc
 
 # Set the permenant conda channes to use for morpheus
@@ -180,11 +173,13 @@ COPY ${MORPHEUS_ROOT_HOST}/conda/environments/dev_cuda-${CUDA_MAJOR_VER}${CUDA_M
 
 # Update the morpheus environment
 RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
+    --mount=type=cache,id=root_cache,target=/root/.cache,sharing=locked \
     # Temp add channel_alias to get around conda 404 errors
     conda config --env --set channel_alias ${CONDA_CHANNEL_ALIAS} &&\
     /opt/conda/bin/conda env update --solver=libmamba -n morpheus --file conda/environments/dev.yaml &&\
     # Remove channel_alias to use the normal channel in the container
-    conda config --env --remove-key channel_alias
+    conda config --env --remove-key channel_alias &&\
+    conda clean -afy
 
 # ============ Stage: conda_bld_morpheus ============
 # Now build the morpheus conda package
@@ -276,19 +271,19 @@ FROM conda_env_dev as development
 ARG CUDA_MAJOR_VER
 ARG CUDA_MINOR_VER
 
-RUN --mount=type=cache,id=apt,target=/var/cache/apt \
-    apt update && \
-    TZ=Etc/UTC \
-    apt install --no-install-recommends -y \
-        cuda-compiler-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-cudart-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-cupti-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-nvtx-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcublas-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcufft-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcurand-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcusolver-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} && \
-    rm -rf /var/lib/apt/lists/*
+# RUN --mount=type=cache,id=apt,target=/var/cache/apt \
+#     apt update && \
+#     TZ=Etc/UTC \
+#     apt install --no-install-recommends -y \
+#         cuda-compiler-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         cuda-cudart-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         cuda-cupti-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         cuda-nvtx-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         libcublas-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         libcufft-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         libcurand-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         libcusolver-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} && \
+#     rm -rf /var/lib/apt/lists/*
 
 # Install camouflage needed for unittests to mock a triton server
 RUN source activate morpheus && \

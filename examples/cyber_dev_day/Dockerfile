@@ -28,12 +28,13 @@ WORKDIR /workspace
 # Make it easier to run commands in the container
 ENV SHELL=/bin/bash
 
-# Copy over just the environment file to install the dependencies without busting the cache from source file changes
-COPY ./examples/cyber_dev_day/requirements.yaml ./examples/cyber_dev_day/
+# # Copy over just the environment file to install the dependencies without busting the cache from source file changes
+# COPY ./examples/cyber_dev_day/requirements.yaml ./examples/cyber_dev_day/
 
-# Install the example's dependencies
-RUN source activate morpheus \
-    && mamba env update -n morpheus -f ./examples/cyber_dev_day/requirements.yaml
+# # Install the example's dependencies
+# RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
+#     source activate morpheus &&\
+#     mamba env update -n morpheus -f ./examples/cyber_dev_day/requirements.yaml
 
 # Copy everything over to the container to build
 COPY . ./
@@ -42,7 +43,13 @@ COPY . ./
 RUN --mount=type=cache,id=workspace_cache,target=/workspace/.cache,sharing=locked \
     --mount=type=cache,id=workspace_build,target=/workspace/build,sharing=locked \
     source activate morpheus &&\
-    CMAKE_CONFIGURE_EXTRA_ARGS="-DMORPHEUS_PYTHON_BUILD_STUBS=OFF -DMORPHEUS_PYTHON_PERFORM_INSTALL=ON -DMORPHEUS_CUDA_ARCHITECTURES=75;80" ./scripts/compile.sh
+    # TEMP: Blast the build directory
+    rm -rf ${BUILD_DIR} &&\
+    # Force a full reconfigure (build artifacts will still be found)
+    rm -rf ${BUILD_DIR}/CMakeCache.txt ${BUILD_DIR}/CMakeFiles &&\
+    INSTALL_PREFIX=${CONDA_PREFIX} \
+    CMAKE_CONFIGURE_EXTRA_ARGS="-DMORPHEUS_PYTHON_BUILD_STUBS=OFF -DMORPHEUS_PYTHON_PERFORM_INSTALL=ON \
+                                -DMORPHEUS_CUDA_ARCHITECTURES=75;80" ./scripts/compile.sh
 
 # Set the workdir to the dev day example
 WORKDIR /workspace/examples/cyber_dev_day/
@@ -51,17 +58,53 @@ WORKDIR /workspace/examples/cyber_dev_day/
 # COPY ./examples/cyber_dev_day /workspace/examples/cyber_dev_day/
 
 # ===== Setup for running unattended =====
-FROM base as runtime
+FROM condaforge/mambaforge:latest as runtime
 
-# # Install the Workflow package
-# RUN source activate morpheus \
-#     && pip install -e .
+# Create a base environment
+RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
+    # Create the environment and install as little dependencies as possible
+    CONDA_ALWAYS_YES=true /opt/conda/bin/mamba create -n morpheus -c conda-forge  \
+      python=${PYTHON_VER} && \
+    # Activate the environment automatically from .bashrc
+    conda init bash && \
+    conda clean -afy &&\
+    echo "conda activate morpheus" >> ~/.bashrc
 
-# # Keep the container running indefinitely
-# CMD ["sleep", "infinity"]
+# Set the permenant conda channes to use for morpheus
+RUN . /opt/conda/etc/profile.d/conda.sh &&\
+    conda activate morpheus &&\
+    conda config --env --add channels conda-forge &&\
+    conda config --env --add channels nvidia &&\
+    conda config --env --add channels rapidsai
+
+# Set the entrypoint to use the entrypoint.sh script which sets the conda env
+COPY ${MORPHEUS_ROOT_HOST}/docker/entrypoint.sh ./docker/
+ENTRYPOINT [ "/opt/conda/bin/tini", "--", "/workspace/docker/entrypoint.sh" ]
+
+# Reset the shell back to normal
+SHELL ["/bin/bash", "-c"]
+
+# Copy over just the environment file to install the dependencies without busting the cache from source file changes
+COPY ./examples/cyber_dev_day/requirements.yaml ./examples/cyber_dev_day/
+
+# Install the required dependencies (this does not include Morpheus' deps)
+RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
+    source activate morpheus &&\
+    mamba env update -n morpheus -f ./examples/cyber_dev_day/requirements.yaml
+
+# Mount the build folder and then run just the install command follow by pip
+RUN --mount=type=cache,id=workspace_cache,target=/workspace/.cache,sharing=locked \
+    --mount=type=cache,id=workspace_build,from=base,source=/workspace/build,target=/workspace/build,sharing=locked \
+    source activate morpheus &&\
+    cd /workspace/${BUILD_DIR:-build} &&\
+    cmake --install . --prefix ${CONDA_PREFIX} &&\
+    pip install .
+
+# Finally, copy all source files over
+COPY . ./
 
 # ===== Setup for running Jupyter =====
-FROM base as jupyter
+FROM runtime as jupyter
 
 # Install the jupyter specific requirements
 RUN source activate morpheus &&\
