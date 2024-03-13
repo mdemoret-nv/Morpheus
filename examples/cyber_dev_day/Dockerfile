@@ -23,7 +23,7 @@ FROM ${MORPHEUS_CONTAINER}:${MORPHEUS_CONTAINER_VERSION} as base
 WORKDIR /workspace
 
 # # Use a separate build directory to avoid clashes on the host
-# ENV BUILD_DIR=build-docker
+ENV BUILD_DIR=build-docker
 
 # Make it easier to run commands in the container
 ENV SHELL=/bin/bash
@@ -41,10 +41,7 @@ COPY . ./
 
 # Build morpheus
 RUN --mount=type=cache,id=workspace_cache,target=/workspace/.cache,sharing=locked \
-    --mount=type=cache,id=workspace_build,target=/workspace/build,sharing=locked \
     source activate morpheus &&\
-    # TEMP: Blast the build directory
-    rm -rf ${BUILD_DIR} &&\
     # Force a full reconfigure (build artifacts will still be found)
     rm -rf ${BUILD_DIR}/CMakeCache.txt ${BUILD_DIR}/CMakeFiles &&\
     INSTALL_PREFIX=${CONDA_PREFIX} \
@@ -60,8 +57,12 @@ WORKDIR /workspace/examples/cyber_dev_day/
 # ===== Setup for running unattended =====
 FROM condaforge/mambaforge:latest as runtime
 
+ARG PYTHON_VER=3.10
+
 # Create a base environment
 RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
+    # Update the base environment
+    /opt/conda/bin/mamba install -y -n base -c conda-forge "git >=2.35.3" "python=${PYTHON_VER}" "tini=0.19" &&\
     # Create the environment and install as little dependencies as possible
     CONDA_ALWAYS_YES=true /opt/conda/bin/mamba create -n morpheus -c conda-forge  \
       python=${PYTHON_VER} && \
@@ -93,15 +94,17 @@ RUN --mount=type=cache,id=conda_pkgs,target=/opt/conda/pkgs,sharing=locked \
     mamba env update -n morpheus -f ./examples/cyber_dev_day/requirements.yaml
 
 # Mount the build folder and then run just the install command follow by pip
-RUN --mount=type=cache,id=workspace_cache,target=/workspace/.cache,sharing=locked \
-    --mount=type=cache,id=workspace_build,from=base,source=/workspace/build,target=/workspace/build,sharing=locked \
-    source activate morpheus &&\
-    cd /workspace/${BUILD_DIR:-build} &&\
-    cmake --install . --prefix ${CONDA_PREFIX} &&\
-    pip install .
+# RUN --mount=type=cache,id=workspace_cache,target=/workspace/.cache,sharing=locked \
+#     --mount=type=bind,from=base,source=/workspace/build-docker,target=/workspace/build-docker \
+#     source activate morpheus &&\
+#     cd /workspace/${BUILD_DIR:-build-docker} &&\
+#     cmake --install . --prefix ${CONDA_PREFIX} &&\
+#     pip install .
 
 # Finally, copy all source files over
 COPY . ./
+
+COPY --from=base /workspace/build-docker /workspace/build-docker
 
 # ===== Setup for running Jupyter =====
 FROM runtime as jupyter

@@ -189,20 +189,20 @@ ARG MORPHEUS_ROOT_HOST
 ARG CUDA_MAJOR_VER
 ARG CUDA_MINOR_VER
 
-RUN --mount=type=cache,id=apt,target=/var/cache/apt \
-    apt update && \
-    DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
-    apt install --no-install-recommends -y \
-        cuda-compiler-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-cudart-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-cupti-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-nvml-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        cuda-nvtx-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcublas-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcufft-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcurand-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
-        libcusolver-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} && \
-    rm -rf /var/lib/apt/lists/*
+# RUN --mount=type=cache,id=apt,target=/var/cache/apt \
+#     apt update && \
+#     DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
+#     apt install --no-install-recommends -y \
+#         cuda-compiler-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         cuda-cudart-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         cuda-cupti-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         cuda-nvml-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         cuda-nvtx-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         libcublas-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         libcufft-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         libcurand-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} \
+#         libcusolver-dev-${CUDA_MAJOR_VER}-${CUDA_MINOR_VER} && \
+#     rm -rf /var/lib/apt/lists/*
 
 # Copy the source
 COPY . ./
@@ -256,7 +256,7 @@ RUN --mount=type=bind,from=conda_bld_morpheus,source=/opt/conda/conda-bld,target
 COPY "${MORPHEUS_ROOT_HOST}/docker" "./docker"
 COPY "${MORPHEUS_ROOT_HOST}/docs" "./docs"
 COPY "${MORPHEUS_ROOT_HOST}/examples" "./examples"
-COPY "${MORPHEUS_ROOT_HOST}/models" "./models"
+# COPY "${MORPHEUS_ROOT_HOST}/models" "./models"
 COPY "${MORPHEUS_ROOT_HOST}/scripts" "./scripts"
 COPY "${MORPHEUS_ROOT_HOST}/*.md" "./"
 COPY "${MORPHEUS_ROOT_HOST}/LICENSE" "./"

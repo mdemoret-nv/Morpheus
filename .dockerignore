@@ -16,6 +16,6 @@ docker/commands.sh
 kafka-docker
 
 # Temporarily ignore for the Cyber Dev Day 2024 content
-.git/
+# .git/
 examples/data/
 models/

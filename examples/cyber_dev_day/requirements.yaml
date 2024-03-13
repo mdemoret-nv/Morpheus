@@ -16,8 +16,21 @@
 channels:
   - conda-forge
   - huggingface
+  - rapidsai
+  - nvidia
+  - nvidia/label/dev
   - pytorch
+  - defaults
 dependencies:
+  - cmake=3.27
+  - pyarrow-hotfix
+  - pytorch-cuda
+  - mrc=24.03
+  - boost-cpp=1.84
+  - python=3.10
+  - cudf=24.02
+  - librdkafka>=1.9.2,<1.10.0a0
+  # runtime
   - aiohttp-client-cache=0.11
   - aiohttp=3.9
   - beautifulsoup4=4.12
@@ -29,10 +42,11 @@ dependencies:
   - tiktoken>=0.3.2,<0.6.0
   - transformers
 
+
   ####### Pip Transitive Dependencies (keep sorted!) #######
   # These are dependencies that are available on conda, but are required by the pip packages listed below. Its much
   # better to install them with conda than pip to allow for better dependency resolution.
-  - pydantic=2.6
+  # - pydantic=2.6
 
   ####### Pip Dependencies (keep sorted!) #######
   - pip
