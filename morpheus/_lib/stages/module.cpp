@@ -27,6 +27,7 @@
 #include "morpheus/stages/http_server_source_stage.hpp"
 #include "morpheus/stages/kafka_source.hpp"
 #include "morpheus/stages/operators/control_message_router.hpp"
+#include "morpheus/stages/operators/control_message_zip.hpp"
 #include "morpheus/stages/preallocate.hpp"
 #include "morpheus/stages/preprocess_fil.hpp"
 #include "morpheus/stages/preprocess_nlp.hpp"
@@ -41,9 +42,10 @@
 #include <mrc/segment/builder.hpp>  // for Builder
 #include <mrc/segment/object.hpp>
 #include <mrc/utils/string_utils.hpp>
-#include <pybind11/attr.h>            // for multiple_inheritance
-#include <pybind11/pybind11.h>        // for arg, init, class_, module_, str_attr_accessor, PYBIND11_MODULE, pybind11
-#include <pybind11/pytypes.h>         // for dict, sequence
+#include <pybind11/attr.h>      // for multiple_inheritance
+#include <pybind11/pybind11.h>  // for arg, init, class_, module_, str_attr_accessor, PYBIND11_MODULE, pybind11
+#include <pybind11/pytypes.h>   // for dict, sequence
+#include <pybind11/stl.h>
 #include <pybind11/stl/filesystem.h>  // IWYU pragma: keep ; for pathlib.Path -> std::filesystem::path conversions
 #include <pymrc/utils.hpp>            // for pymrc::import
 #include <rxcpp/rx.hpp>
@@ -68,6 +70,9 @@ PYBIND11_MODULE(stages, _module)
 
     // Load the cudf helpers
     CudfHelper::load();
+
+    // Make sure to load mrc.core.segment to get the base edge types
+    mrc::pymrc::import(_module, "mrc.core.common");
 
     // Make sure to load mrc.core.segment to get ObjectProperties
     mrc::pymrc::import(_module, "mrc.core.segment");
@@ -278,12 +283,24 @@ PYBIND11_MODULE(stages, _module)
     auto operators_module = _module.def_submodule("operators");
 
     py::class_<mrc::edge::IWritableAcceptor<std::shared_ptr<ControlMessage>>,
+               mrc::edge::IWritableAcceptorBase,
                std::shared_ptr<mrc::edge::IWritableAcceptor<std::shared_ptr<ControlMessage>>>>(
         operators_module, "ControlMessageWritableAcceptor");
 
     py::class_<mrc::edge::IWritableProvider<std::shared_ptr<ControlMessage>>,
+               mrc::edge::IWritableProviderBase,
                std::shared_ptr<mrc::edge::IWritableProvider<std::shared_ptr<ControlMessage>>>>(
         operators_module, "ControlMessageWritableProvider");
+
+    py::class_<mrc::edge::IReadableAcceptor<std::shared_ptr<ControlMessage>>,
+               mrc::edge::IReadableAcceptorBase,
+               std::shared_ptr<mrc::edge::IReadableAcceptor<std::shared_ptr<ControlMessage>>>>(
+        operators_module, "ControlMessageReadableAcceptor");
+
+    py::class_<mrc::edge::IReadableProvider<std::shared_ptr<ControlMessage>>,
+               mrc::edge::IReadableProviderBase,
+               std::shared_ptr<mrc::edge::IReadableProvider<std::shared_ptr<ControlMessage>>>>(
+        operators_module, "ControlMessageReadableProvider");
 
     py::class_<mrc::segment::Object<ControlMessageRouter>,
                mrc::segment::ObjectProperties,
@@ -299,6 +316,28 @@ PYBIND11_MODULE(stages, _module)
                 // Need to ensure that we keey the key object alive
 
                 auto edge = self.object().get_source(object_hash);
+
+                return edge;
+            },
+            py::return_value_policy::reference_internal);
+
+    py::class_<mrc::segment::Object<ControlMessageDynamicZip>,
+               mrc::segment::ObjectProperties,
+               std::shared_ptr<mrc::segment::Object<ControlMessageDynamicZip>>>(
+        operators_module, "ControlMessageDynamicZip", py::multiple_inheritance())
+        .def(py::init<>(&ControlMessageDynamicZipInterfaceProxy::init),
+             py::arg("builder"),
+             py::arg("name"),
+             py::arg("max_outstanding") = 64)
+        .def(
+            "get_sink",
+            [](mrc::segment::Object<ControlMessageDynamicZip>& self, py::object key) {
+                // Need to get a hash of the object to use as a key
+                auto object_hash = py::hash(key);
+
+                // Need to ensure that we keey the key object alive
+
+                auto edge = self.object().get_sink(object_hash);
 
                 return edge;
             },
