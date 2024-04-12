@@ -23,8 +23,11 @@
 #include <boost/fiber/context.hpp>
 #include <cuda_runtime.h>
 #include <cudf/column/column.hpp>
+#include <cudf/column/column_factories.hpp>
 #include <cudf/io/types.hpp>
+#include <cudf/scalar/scalar.hpp>
 #include <cudf/table/table.hpp>
+#include <cudf/types.hpp>
 #include <generic/rte_byteorder.h>
 #include <glog/logging.h>
 #include <mrc/segment/builder.hpp>
@@ -131,13 +134,17 @@ DocaConvertStage::source_type_t DocaConvertStage::on_raw_packet_message(sink_typ
 
     // LOG(WARNING) << "New RawPacketMessage with " << packet_count << " packets from queue id " << queue_idx;
 
-    // gather header data
-    auto header_col =
-        doca::gather_header(packet_count, pkt_addr_list, pkt_hdr_size_list, pkt_pld_size_list, m_stream_cpp);
+    auto header_col = cudf::make_column_from_scalar(cudf::string_scalar("The header"), packet_count);
 
-    // gather payload data
-    auto payload_col =
-        doca::gather_payload(packet_count, pkt_addr_list, pkt_hdr_size_list, pkt_pld_size_list, m_stream_cpp);
+    // // gather header data
+    // auto header_col =
+    //     doca::gather_header(packet_count, pkt_addr_list, pkt_hdr_size_list, pkt_pld_size_list, m_stream_cpp);
+
+    // // gather payload data
+    // auto payload_col =
+    //     doca::gather_payload(packet_count, pkt_addr_list, pkt_hdr_size_list, pkt_pld_size_list, m_stream_cpp);
+
+    auto payload_col = cudf::make_column_from_scalar(cudf::string_scalar("this is my test string"), packet_count);
 
     // const auto gather_payload_stop = now_ns();
 
