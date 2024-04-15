@@ -48,9 +48,8 @@ def _build_engine(model_name: str, vdb_resource_name: str, llm_service: str, emb
 
     prompt = """You are a helpful assistant. Given the following background information:\n
 {% for c in contexts -%}
-Title: {{ c.title }}
-Summary: {{ c.summary }}
-Text: {{ c.page_content }}
+Header: {{ c.header }}
+Data: {{ c.data }}
 {% endfor %}
 
 Please answer the following question: \n{{ query }}"""
@@ -95,9 +94,7 @@ def standalone(num_threads,
     config.pipeline_batch_size = pipeline_batch_size
     config.model_max_batch_size = model_max_batch_size
 
-    source_dfs = [
-        cudf.DataFrame({"questions": ["What are some new attacks discovered in the cyber security industry?"] * 5})
-    ]
+    source_dfs = [cudf.DataFrame({"questions": ["What is the DOCA SDK?"]})]
 
     completion_task = {"task_type": "completion", "task_dict": {"input_keys": ["questions"], }}
 

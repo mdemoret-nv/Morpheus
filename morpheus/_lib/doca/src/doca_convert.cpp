@@ -140,11 +140,11 @@ DocaConvertStage::source_type_t DocaConvertStage::on_raw_packet_message(sink_typ
     // auto header_col =
     //     doca::gather_header(packet_count, pkt_addr_list, pkt_hdr_size_list, pkt_pld_size_list, m_stream_cpp);
 
-    // // gather payload data
-    // auto payload_col =
-    //     doca::gather_payload(packet_count, pkt_addr_list, pkt_hdr_size_list, pkt_pld_size_list, m_stream_cpp);
+    // gather payload data
+    auto payload_col =
+        doca::gather_payload(packet_count, pkt_addr_list, pkt_hdr_size_list, pkt_pld_size_list, m_stream_cpp);
 
-    auto payload_col = cudf::make_column_from_scalar(cudf::string_scalar("this is my test string"), packet_count);
+    // auto payload_col = cudf::make_column_from_scalar(cudf::string_scalar("this is my test string"), packet_count);
 
     // const auto gather_payload_stop = now_ns();
 

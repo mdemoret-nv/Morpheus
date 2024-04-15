@@ -125,7 +125,8 @@
             "settings": {
                 "cmake.cmakePath": "/tmp/.current-conda-env/bin/cmake",
                 "C_Cpp.intelliSenseEngine": "disabled",
-                "python.terminal.activateEnvironment": false
+                "python.terminal.activateEnvironment": false,
+                "cmake.buildDirectory": "${workspaceFolder}/build-devcon"
             }
         }
     },

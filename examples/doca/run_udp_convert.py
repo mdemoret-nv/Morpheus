@@ -34,7 +34,7 @@ from morpheus.stages.preprocess.preprocess_nlp_stage import PreprocessNLPStage
 from morpheus.utils.logger import configure_logging
 
 
-def build_milvus_service(uri, embedding_size):
+def build_milvus_service(embedding_size):
 
     milvus_resource_kwargs = {
         "index_conf": {
@@ -54,21 +54,13 @@ def build_milvus_service(uri, embedding_size):
                                      description="Primary key for the collection",
                                      is_primary=True,
                                      auto_id=True).to_dict(),
-                pymilvus.FieldSchema(name="title",
+                pymilvus.FieldSchema(name="header",
                                      dtype=pymilvus.DataType.VARCHAR,
-                                     description="The title of the RSS Page",
+                                     description="The packet header",
                                      max_length=65_535).to_dict(),
-                pymilvus.FieldSchema(name="link",
+                pymilvus.FieldSchema(name="data",
                                      dtype=pymilvus.DataType.VARCHAR,
-                                     description="The URL of the RSS Page",
-                                     max_length=65_535).to_dict(),
-                pymilvus.FieldSchema(name="summary",
-                                     dtype=pymilvus.DataType.VARCHAR,
-                                     description="The summary of the RSS Page",
-                                     max_length=65_535).to_dict(),
-                pymilvus.FieldSchema(name="page_content",
-                                     dtype=pymilvus.DataType.VARCHAR,
-                                     description="A chunk of text from the RSS Page",
+                                     description="The packet data",
                                      max_length=65_535).to_dict(),
                 pymilvus.FieldSchema(name="embedding",
                                      dtype=pymilvus.DataType.FLOAT_VECTOR,
@@ -79,11 +71,7 @@ def build_milvus_service(uri, embedding_size):
         }
     }
 
-    vdb_service: MilvusVectorDBService = VectorDBServiceFactory.create_instance("milvus",
-                                                                                uri=uri,
-                                                                                **milvus_resource_kwargs)
-
-    return vdb_service
+    return milvus_resource_kwargs
 
 
 @click.command()
@@ -137,11 +125,12 @@ def run_pipeline(out_file, nic_addr, gpu_addr):
 
     pipeline.add_stage(
         WriteToVectorDBStage(config,
-                             service=build_milvus_service("http://localhost:19530", 384),
                              resource_name="vdb_doca",
                              batch_size=16896,
-                             recreate=True))
-
+                             recreate=True,
+                             service="milvus",
+                             uri="http://localhost:19530",
+                             resource_schemas={"vdb_doca": build_milvus_service(384)}))
     pipeline.add_stage(MonitorStage(config, description="Embedding rate", unit='pkts'))
 
     # Build the pipeline here to see types in the vizualization

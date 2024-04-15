@@ -88,7 +88,7 @@ DocaSourceStage::subscriber_fn_t DocaSourceStage::build()
         struct packets_info* pkt_ptr;
         int sem_idx          = 0;
         cudaStream_t rstream = nullptr;
-        int thread_idx = mrc::runnable::Context::get_runtime_context().rank();
+        int thread_idx       = mrc::runnable::Context::get_runtime_context().rank();
 
         // Add per queue
         auto pkt_addr_unique = std::make_unique<morpheus::doca::DocaMem<uintptr_t>>(
@@ -112,7 +112,7 @@ DocaSourceStage::subscriber_fn_t DocaSourceStage::build()
 
         for (int idxs = 0; idxs < MAX_SEM_X_QUEUE; idxs++)
         {
-            pkt_ptr = static_cast<struct packets_info*>(m_semaphore[thread_idx]->get_info_cpu(idxs));
+            pkt_ptr               = static_cast<struct packets_info*>(m_semaphore[thread_idx]->get_info_cpu(idxs));
             pkt_ptr->pkt_addr     = pkt_addr_unique->gpu_ptr() + (MAX_PKT_RECEIVE * idxs);
             pkt_ptr->pkt_hdr_size = pkt_hdr_size_unique->gpu_ptr() + (MAX_PKT_RECEIVE * idxs);
             pkt_ptr->pkt_pld_size = pkt_pld_size_unique->gpu_ptr() + (MAX_PKT_RECEIVE * idxs);
