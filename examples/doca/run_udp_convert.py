@@ -102,7 +102,7 @@ def run_pipeline(out_file, nic_addr, gpu_addr):
     config.feature_length = 512
 
     # Below properties are specified by the command line
-    config.num_threads = 5
+    # config.num_threads = 5
 
     pipeline = LinearPipeline(config)
 
@@ -122,6 +122,7 @@ def run_pipeline(out_file, nic_addr, gpu_addr):
                              model_name="all-MiniLM-L6-v2",
                              server_url="localhost:8001",
                              use_shared_memory=True))
+    pipeline.add_stage(MonitorStage(config, description="Embedding rate", unit='pkts'))
 
     pipeline.add_stage(
         WriteToVectorDBStage(config,
@@ -131,7 +132,7 @@ def run_pipeline(out_file, nic_addr, gpu_addr):
                              service="milvus",
                              uri="http://localhost:19530",
                              resource_schemas={"vdb_doca": build_milvus_service(384)}))
-    pipeline.add_stage(MonitorStage(config, description="Embedding rate", unit='pkts'))
+    pipeline.add_stage(MonitorStage(config, description="Upload rate", unit='docs'))
 
     # Build the pipeline here to see types in the vizualization
     pipeline.build()

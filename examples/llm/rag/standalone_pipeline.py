@@ -84,7 +84,8 @@ def standalone(num_threads,
                vdb_resource_name,
                repeat_count,
                llm_service: str,
-               embedding_size: int):
+               embedding_size: int,
+               question: list[str]):
     config = Config()
     config.mode = PipelineModes.NLP
     config.edge_buffer_size = 128
@@ -94,7 +95,7 @@ def standalone(num_threads,
     config.pipeline_batch_size = pipeline_batch_size
     config.model_max_batch_size = model_max_batch_size
 
-    source_dfs = [cudf.DataFrame({"questions": ["What is the DOCA SDK?"]})]
+    source_dfs = [cudf.DataFrame({"questions": question})]
 
     completion_task = {"task_type": "completion", "task_dict": {"input_keys": ["questions"], }}
 
@@ -129,7 +130,10 @@ def standalone(num_threads,
     if logger.isEnabledFor(logging.DEBUG):
         # The responses are quite long, when debug is enabled disable the truncation that pandas and cudf normally
         # perform on the output
-        pd.set_option('display.max_colwidth', None)
-        logger.debug("Responses:\n%s", responses['response'])
+        # pd.set_option('display.max_colwidth', None)
+
+        for row in responses.itertuples():
+            logger.debug("Question:\n%s", row.questions)
+            logger.debug("Response:\n%s", row.response)
 
     return start_time
