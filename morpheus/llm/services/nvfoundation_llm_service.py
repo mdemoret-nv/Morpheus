@@ -63,10 +63,31 @@ class NVFoundationLLMClient(LLMClient):
         self._model_kwargs = model_kwargs
         self._prompt_key = "prompt"
 
-        self._client = ChatNVIDIA(api_key=self._parent._api_key,
-                                  base_url=self._parent._base_url,
-                                  model=model_name,
-                                  **model_kwargs)  # type: ignore
+        chat_kwargs = {
+            "model": model_name,
+            "api_key": self._parent._api_key,
+            "base_url": self._parent._base_url,
+        }
+
+        # Remove None values set by the environment in the kwargs
+        if (chat_kwargs["api_key"] is None):
+            del chat_kwargs["api_key"]
+
+        if (chat_kwargs["base_url"] is None):
+            del chat_kwargs["base_url"]
+
+        # Combine the chat args with the model
+        self._client = ChatNVIDIA(**{**chat_kwargs, **model_kwargs})  # type: ignore
+
+        if (self._client.curr_mode != self._parent._curr_mode):
+            self._client: ChatNVIDIA = self._client.mode(mode=self._parent._curr_mode, **chat_kwargs)
+
+        assert self._client.curr_mode == self._parent._curr_mode, "Mode not set correctly"
+
+        # Preload the available models to avoid thrashing later
+        assert len(self._client.available_models) > 0, "No models available for this client."
+
+        self._semaphore = asyncio.Semaphore(int(os.environ.get("MORPHEUS_CONCURRENCY", 100)))
 
     def get_input_names(self) -> list[str]:
         schema = self._client.get_input_schema()
@@ -81,7 +102,12 @@ class NVFoundationLLMClient(LLMClient):
         input_dict : dict
             Input containing prompt data.
         """
-        return self.generate_batch({self._prompt_key: [input_dict[self._prompt_key]]})[0]
+
+        inputs = {self._prompt_key: [input_dict[self._prompt_key]]}
+
+        input_dict.pop(self._prompt_key)
+
+        return self.generate_batch(inputs=inputs, **input_dict)[0]
 
     async def generate_async(self, **input_dict) -> str:
         """
@@ -108,7 +134,9 @@ class NVFoundationLLMClient(LLMClient):
         """
         prompts = [StringPromptValue(text=p) for p in inputs[self._prompt_key]]
 
-        responses = self._client.generate_prompt(prompts=prompts, **self._model_kwargs)  # type: ignore
+        final_kwargs = {**self._model_kwargs, **kwargs}
+
+        responses = self._client.generate_prompt(prompts=prompts, **final_kwargs)  # type: ignore
 
         return [g[0].text for g in responses.generations]
 
@@ -121,13 +149,15 @@ class NVFoundationLLMClient(LLMClient):
             Inputs containing prompt data.
         """
 
-        prompts = [StringPromptValue(text=p) for p in inputs[self._prompt_key]]
+        async with self._semaphore:
 
-        final_kwargs = {**self._model_kwargs, **kwargs}
+            prompts = [StringPromptValue(text=p) for p in inputs[self._prompt_key]]
 
-        responses = await self._client.agenerate_prompt(prompts=prompts, **final_kwargs)  # type: ignore
+            final_kwargs = {**self._model_kwargs, **kwargs}
 
-        return [g[0].text for g in responses.generations]
+            responses = await self._client.agenerate_prompt(prompts=prompts, **final_kwargs)  # type: ignore
+
+            return [g[0].text for g in responses.generations]
 
 
 class NVFoundationLLMService(LLMService):
@@ -147,17 +177,26 @@ class NVFoundationLLMService(LLMService):
             variable. If neither are present `https://api.nvcf.nvidia.com/v2` will be used., by default None
     """
 
-    def __init__(self, *, api_key: str = None, base_url: str = None) -> None:
+    def __init__(self,
+                 *,
+                 api_key: str = None,
+                 base_url: str = None,
+                 max_retries: int = 5,
+                 curr_mode: typing.Literal["nvidia", "catalog"] = "nvidia") -> None:
         if IMPORT_EXCEPTION is not None:
             raise ImportError(IMPORT_ERROR_MESSAGE) from IMPORT_EXCEPTION
 
         super().__init__()
 
         self._api_key = api_key
+
         if base_url is None:
             self._base_url = os.getenv('NVIDIA_API_BASE', None)
         else:
             self._base_url = base_url
+
+        self._max_retries = max_retries
+        self._curr_mode: typing.Literal["nvidia", "catalog"] = curr_mode
 
     def get_client(self, *, model_name: str, **model_kwargs) -> NVFoundationLLMClient:
         """

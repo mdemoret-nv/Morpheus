@@ -37,8 +37,6 @@ try:
     import openai
     import openai.types.chat
     import openai.types.chat.chat_completion
-    from openai.types.chat.completion_create_params import ResponseFormat
-
 except ImportError as import_exc:
     IMPORT_EXCEPTION = import_exc
 
@@ -67,7 +65,7 @@ class _ApiLogger:
         self.outputs = output
 
 
-class OpenAIChatClient(LLMClient):
+class NVCatalogLLMClient(LLMClient):
     """
     Client for interacting with a specific OpenAI chat model. This class should be constructed with the
     `OpenAIChatService.get_client` method.
@@ -91,12 +89,11 @@ class OpenAIChatClient(LLMClient):
     _assistant_key: str = "assistant"
 
     def __init__(self,
-                 parent: "OpenAIChatService",
+                 parent: "NVCatalogLLMService",
                  *,
                  model_name: str,
                  set_assistant: bool = False,
                  max_retries: int = 10,
-                 json=False,
                  **model_kwargs) -> None:
         if IMPORT_EXCEPTION is not None:
             raise ImportError(IMPORT_ERROR_MESSAGE) from IMPORT_EXCEPTION
@@ -111,21 +108,15 @@ class OpenAIChatClient(LLMClient):
         self._set_assistant = set_assistant
         self._prompt_key = "prompt"
         self._assistant_key = "assistant"
-        self._json = json
 
         # Preserve original configuration.
         self._model_kwargs = copy.deepcopy(model_kwargs)
-
-        if (self._json):
-            self._model_kwargs["response_format"] = ResponseFormat(type="json_object")
 
         # Create the client objects for both sync and async
         self._client = openai.OpenAI(api_key=parent._api_key, base_url=parent._base_url, max_retries=max_retries)
         self._client_async = openai.AsyncOpenAI(api_key=parent._api_key,
                                                 base_url=parent._base_url,
                                                 max_retries=max_retries)
-
-        self._semaphore = asyncio.Semaphore(int(os.environ.get("MORPHEUS_CONCURRENCY", 100)))
 
     def get_input_names(self) -> list[str]:
         input_names = [self._prompt_key]
@@ -219,21 +210,19 @@ class OpenAIChatClient(LLMClient):
 
         messages = self._create_messages(prompt, assistant)
 
-        async with self._semaphore:
+        with self._api_logger(inputs=messages) as msg_logger:
 
-            with self._api_logger(inputs=messages) as msg_logger:
+            try:
+                output = await self._client_async.chat.completions.create(model=self._model_name,
+                                                                          messages=messages,
+                                                                          **self._model_kwargs)
+            except Exception as exc:
+                self._parent._logger.error("Error generating completion: %s", exc)
+                raise
 
-                try:
-                    output = await self._client_async.chat.completions.create(model=self._model_name,
-                                                                              messages=messages,
-                                                                              **self._model_kwargs)
-                except Exception as exc:
-                    self._parent._logger.error("Error generating completion: %s", exc)
-                    raise
+            msg_logger.set_output(output)
 
-                msg_logger.set_output(output)
-
-            return self._extract_completion(output)
+        return self._extract_completion(output)
 
     async def generate_async(self, **input_dict) -> str:
         """
@@ -324,7 +313,7 @@ class OpenAIChatClient(LLMClient):
         return await asyncio.gather(*coros, return_exceptions=return_exceptions)
 
 
-class OpenAIChatService(LLMService):
+class NVCatalogLLMService(LLMService):
     """
     A service for interacting with OpenAI Chat models, this class should be used to create clients.
     """
@@ -357,12 +346,12 @@ class OpenAIChatService(LLMService):
 
         super().__init__()
 
-        self._api_key = api_key
-        self._base_url = base_url
+        self._api_key = api_key or os.getenv("NVIDIA_API_KEY")
+        self._base_url = base_url or os.getenv("NVCATALOG_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
         self._default_model_kwargs = default_model_kwargs or {}
 
-        self._logger = logging.getLogger(f"{__package__}.{OpenAIChatService.__name__}")
+        self._logger = logging.getLogger(f"{__package__}.{NVCatalogLLMService.__name__}")
 
         # Dont propagate up to the default logger. Just log to file
         self._logger.propagate = False
@@ -375,7 +364,7 @@ class OpenAIChatService(LLMService):
         self._logger.addHandler(file_handler)
         self._logger.setLevel(logging.INFO)
 
-        self._logger.info("OpenAI Chat Service started.")
+        self._logger.info("NVCatalogLLMService started.")
 
         self._message_count = 0
 
@@ -390,7 +379,7 @@ class OpenAIChatService(LLMService):
                    model_name: str,
                    set_assistant: bool = False,
                    max_retries: int = 10,
-                   **model_kwargs) -> OpenAIChatClient:
+                   **model_kwargs) -> NVCatalogLLMClient:
         """
         Returns a client for interacting with a specific model. This method is the preferred way to create a client.
 
@@ -412,8 +401,8 @@ class OpenAIChatService(LLMService):
 
         final_model_kwargs = {**self._default_model_kwargs, **model_kwargs}
 
-        return OpenAIChatClient(self,
-                                model_name=model_name,
-                                set_assistant=set_assistant,
-                                max_retries=max_retries,
-                                **final_model_kwargs)
+        return NVCatalogLLMClient(self,
+                                  model_name=model_name,
+                                  set_assistant=set_assistant,
+                                  max_retries=max_retries,
+                                  **final_model_kwargs)

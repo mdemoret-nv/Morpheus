@@ -64,6 +64,8 @@ class NeMoLLMClient(LLMClient):
         self._model_kwargs = model_kwargs
         self._prompt_key = "prompt"
 
+        self._semaphore = asyncio.Semaphore(int(os.environ.get("MORPHEUS_CONCURRENCY", 100)))
+
     def get_input_names(self) -> list[str]:
         return [self._prompt_key]
 
@@ -130,26 +132,27 @@ class NeMoLLMClient(LLMClient):
         iterations = 0
         errors = []
 
-        while iterations < self._parent._retry_count:
-            fut = await asyncio.wrap_future(
-                self._parent._conn.generate(model=self._model_name,
-                                            prompt=prompt,
-                                            return_type="async",
-                                            **self._model_kwargs))  # type: ignore
+        async with self._semaphore:
+            while iterations < self._parent._retry_count:
+                fut = await asyncio.wrap_future(
+                    self._parent._conn.generate(model=self._model_name,
+                                                prompt=prompt,
+                                                return_type="async",
+                                                **self._model_kwargs))  # type: ignore
 
-            result: dict = nemollm.NemoLLM.post_process_generate_response(
-                fut, return_text_completion_only=False)  # type: ignore
+                result: dict = nemollm.NemoLLM.post_process_generate_response(
+                    fut, return_text_completion_only=False)  # type: ignore
 
-            if result.get('status', None) == 'fail':
-                iterations += 1
-                errors.append(result.get('msg', 'Unknown error'))
-                continue
+                if result.get('status', None) == 'fail':
+                    iterations += 1
+                    errors.append(result.get('msg', 'Unknown error'))
+                    continue
 
-            return result['text']
+                return result['text']
 
-        raise RuntimeError(
-            f"Failed to generate response for prompt '{prompt}' after {self._parent._retry_count} attempts. "
-            f"Errors: {errors}")
+            raise RuntimeError(
+                f"Failed to generate response for prompt '{prompt}' after {self._parent._retry_count} attempts. "
+                f"Errors: {errors}")
 
     @typing.overload
     async def generate_batch_async(self,

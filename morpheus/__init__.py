@@ -22,6 +22,26 @@ import pyarrow_hotfix
 
 # ##################################################################################
 
+from ctypes import byref
+from ctypes import c_int
+
+from numba import cuda
+
+dv = c_int(0)
+cuda.cudadrv.driver.driver.cuDriverGetVersion(byref(dv))
+drv_major = dv.value // 1000
+drv_minor = (dv.value - (drv_major * 1000)) // 10
+run_major, run_minor = cuda.runtime.get_version()
+print(f'{drv_major} {drv_minor} {run_major} {run_minor}')
+
+import os
+
+os.environ["PTXCOMPILER_CHECK_NUMBA_CODEGEN_PATCH_NEEDED"] = "0"
+os.environ["PTXCOMPILER_KNOWN_DRIVER_VERSION"] = f"{drv_major}.{drv_minor}"
+os.environ["PTXCOMPILER_KNOWN_RUNTIME_VERSION"] = f"{run_major}.{run_minor}"
+
+import cudf
+
 # Create a default null logger to prevent log messages from being propagated to users of this library unless otherwise
 # configured. Use the `utils.logging` module to configure Morpheus logging
 logging.getLogger(__name__).addHandler(logging.NullHandler())
