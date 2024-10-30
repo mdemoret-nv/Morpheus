@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 IMPORT_EXCEPTION = None
 
 try:
+    from langchain_core.messages import ChatMessage
+    from langchain_core.prompt_values import ChatPromptValue
+    from langchain_core.prompt_values import PromptValue
     from langchain_core.prompt_values import StringPromptValue
     from langchain_nvidia_ai_endpoints import ChatNVIDIA
 except ImportError as import_exc:
@@ -210,8 +213,21 @@ class NVFoundationLLMClient(LLMClient):
                           f"{type(self).__name__}.generate_batch_async() method. "
                           "If an exception is raised for any item, the function will exit and raise that exception.")
 
-        prompts = [StringPromptValue(text=p) for p in inputs[self._prompt_key]]
         final_kwargs = {**self._model_kwargs, **kwargs}
+
+        input_data = inputs[self._prompt_key]
+
+        is_all_strings = all(isinstance(i, str) for i in input_data)
+
+        prompts: list[PromptValue] = []
+
+        if (is_all_strings):
+
+            prompts = [StringPromptValue(text=p) for p in input_data]
+
+        else:
+            for message_list in input_data:
+                prompts.append(ChatPromptValue(messages=[ChatMessage.construct(**m) for m in message_list]))
 
         responses = []
         try:

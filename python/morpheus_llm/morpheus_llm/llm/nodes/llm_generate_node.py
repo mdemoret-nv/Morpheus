@@ -28,7 +28,7 @@ class LLMGenerateNode(LLMNodeBase):
     upstream nodes.
     """
 
-    def __init__(self, llm_client: LLMClient, return_exceptions=False) -> None:
+    def __init__(self, llm_client: LLMClient, return_exceptions=False, prefix=None) -> None:
         """
         Parameters
         ----------
@@ -43,6 +43,7 @@ class LLMGenerateNode(LLMNodeBase):
 
         self._llm_client = llm_client
         self._return_exceptions: typing.Literal[True] | typing.Literal[False] = return_exceptions
+        self._prefix: list[dict] = prefix
 
     def get_input_names(self) -> list[str]:
         return self._llm_client.get_input_names()
@@ -50,7 +51,19 @@ class LLMGenerateNode(LLMNodeBase):
     async def execute(self, context: LLMContext) -> LLMContext:  # pylint: disable=invalid-overridden-method
 
         # Get the inputs
-        inputs: dict[str, list[str]] = context.get_inputs()  # type: ignore
+        raw_inputs: dict[str, list[str]] = context.get_inputs()  # type: ignore
+
+        if (self._prefix is not None):
+
+            input_strs = raw_inputs["prompt"]
+
+            combined_inputs = [self._prefix + [{"role": "user", "content": x}] for x in input_strs]
+
+            inputs = {
+                "messages": combined_inputs,
+            }
+        else:
+            inputs = raw_inputs
 
         results = await self._llm_client.generate_batch_async(inputs, return_exceptions=self._return_exceptions)
 
